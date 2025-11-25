@@ -12,23 +12,25 @@ from collections import defaultdict
 import heapq
 import time
 
-from data_loader import MaintenanceData
-from state import FleetState, AircraftState, create_initial_fleet_state
-from dynamics import (
+from .data_loader import MaintenanceData
+from .core import (
+    # State
+    FleetState,
+    AircraftState,
+    create_initial_fleet_state,
+    # Dynamics
     advance_fleet_one_day,
     schedule_a_check,
     schedule_c_check,
     get_c_check_elapsed_time,
     get_daily_fh,
     get_daily_fc,
-)
-from cost import (
+    # Cost
     calculate_a_check_wasted_interval,
     calculate_c_check_wasted_interval,
     calculate_urgency_score,
     calculate_overdue_penalty,
-)
-from constraints import (
+    # Constraints
     can_schedule_c_check,
     can_schedule_a_check,
     get_feasible_c_check_aircraft,
@@ -775,10 +777,10 @@ def compare_schedulers(
 
 
 if __name__ == "__main__":
-    from data_loader import load_maintenance_data
+    from .data_loader import load_maintenance_data
 
     print("Loading maintenance data...")
-    data = load_maintenance_data("Sep 25 2017 (Case Study 2018-2021).xlsx")
+    data = load_maintenance_data("../Sep 25 2017 (Case Study 2018-2021).xlsx")
 
     print(f"Planning horizon: {data.config.total_years} years")
     planning_days = data.config.total_years * 365

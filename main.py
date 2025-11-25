@@ -24,15 +24,17 @@ import sys
 from datetime import date, timedelta
 from pathlib import Path
 
-from data_loader import load_maintenance_data, MaintenanceData
-from solver import (
+from aircraft_scheduler import (
+    # Data loading
+    load_maintenance_data,
+    MaintenanceData,
+    # Schedulers
     GreedyScheduler,
     DPScheduler,
     OptimizedDPScheduler,
     ScheduleResult,
     compare_schedulers,
-)
-from visualization import (
+    # Visualization
     plot_gantt_chart,
     plot_check_distribution,
     plot_capacity_utilization,
