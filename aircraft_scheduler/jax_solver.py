@@ -1,5 +1,5 @@
 """
-Deng et al. (2020) Aircraft Maintenance Check Scheduling - JAX Implementation
+Aircraft Maintenance Check Scheduling Optimizer
 
 A faithful reproduction of:
     Deng, Q., Santos, B.F., Curran, R. (2020). "A practical dynamic programming 
@@ -36,11 +36,10 @@ Key Paper Elements Implemented:
 
 Usage:
 ------
-    from aircraft_scheduler.jax_solver import DengScheduler
-    from aircraft_scheduler import load_maintenance_data
+    from aircraft_scheduler import Scheduler, load_maintenance_data
     
     data = load_maintenance_data("data.xlsx")
-    scheduler = DengScheduler(data, beam_width=200)
+    scheduler = Scheduler(data, beam_width=200)
     result = scheduler.schedule(4 * 365, verbose=True)
 """
 
@@ -402,7 +401,7 @@ def thrifty_prune(frontier, beam_width):
 # MAIN SCHEDULER
 # =============================================================================
 
-class DengScheduler:
+class Scheduler:
     """
     Forward beam search scheduler implementing Deng et al. (2020).
     
@@ -545,12 +544,9 @@ class DengScheduler:
         }
 
 
-# =============================================================================
-# CONVENIENCE ALIAS
-# =============================================================================
-
-# Alias for backward compatibility
-JaxDPScheduler = DengScheduler
+# Backward compatibility aliases
+DengScheduler = Scheduler
+JaxDPScheduler = Scheduler
 
 
 # =============================================================================
@@ -560,13 +556,13 @@ JaxDPScheduler = DengScheduler
 if __name__ == "__main__":
     from .data_loader import load_maintenance_data
     
-    print("Deng et al. (2020) Aircraft Maintenance Scheduler")
+    print("Aircraft Maintenance Scheduler - Deng et al. (2020)")
     print("=" * 60)
     
     data = load_maintenance_data("Sep 25 2017 (Case Study 2018-2021).xlsx")
     print(f"Loaded {len(data.aircraft_tails)} aircraft")
     
-    scheduler = DengScheduler(data, beam_width=200)
+    scheduler = Scheduler(data, beam_width=200)
     result = scheduler.schedule(4 * 365, verbose=True)
     
     print("\n" + "=" * 60)

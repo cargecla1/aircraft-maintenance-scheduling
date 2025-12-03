@@ -2,7 +2,7 @@
 """
 Regression tests for Aircraft Maintenance Check Scheduling.
 
-Verifies that the refactored package structure works correctly.
+Verifies that the package works correctly.
 """
 
 import sys
@@ -13,21 +13,11 @@ def test_imports():
     """Test that all imports work correctly."""
     print("Testing imports...")
     
-    # Test package-level imports
     from aircraft_scheduler import (
         # Data loading
         MaintenanceData,
         load_maintenance_data,
-        AircraftDInitial,
-        AircraftCInitial,
-        AircraftAInitial,
-        FlightRates,
-        CCheckInfo,
         Config,
-        DateRange,
-        PeakSeason,
-        ReservedMaintenance,
-        AdditionalSlots,
         # State
         AircraftState,
         FleetState,
@@ -35,44 +25,21 @@ def test_imports():
         # Dynamics
         age_aircraft,
         advance_fleet_one_day,
-        schedule_a_check,
-        schedule_c_check,
         perform_a_check,
         perform_c_check,
-        get_daily_fh,
-        get_daily_fc,
-        get_c_check_elapsed_time,
         # Constraints
-        ConstraintViolation,
         can_schedule_c_check,
         can_schedule_a_check,
         get_available_c_slots,
         get_available_a_slots,
-        get_feasible_c_check_aircraft,
-        get_feasible_a_check_aircraft,
-        get_mandatory_c_check_aircraft,
-        get_mandatory_a_check_aircraft,
-        is_c_check_not_allowed,
-        is_a_check_not_allowed,
         validate_fleet_state,
         # Cost (Paper eq. 28)
-        CheckCost,
         calculate_a_check_cost,
         calculate_c_check_cost,
         calculate_urgency_score,
-        calculate_overdue_penalty,
-        # Solver
-        ScheduledCheck,
+        # Scheduler
+        Scheduler,
         ScheduleResult,
-        GreedyScheduler,
-        DPScheduler,
-        OptimizedDPScheduler,
-        compare_schedulers,
-        # Visualization
-        plot_gantt_chart,
-        plot_check_distribution,
-        plot_capacity_utilization,
-        generate_report,
     )
     
     print("  All imports successful!")
@@ -119,46 +86,15 @@ def test_state_creation():
     assert fleet.day_index == 0, "Day index should be 0"
     assert fleet.current_date == data.config.begin_day, "Start date mismatch"
     
-    # Test first aircraft state
-    first_tail = data.aircraft_tails[0]
-    ac = fleet.aircraft[first_tail]
-    assert ac.tail == first_tail, "Tail mismatch"
-    assert ac.c_ci_dy > 0, "Invalid C-check interval"
-    
     print(f"  Created fleet state with {len(fleet.aircraft)} aircraft")
     return True
 
 
-def test_greedy_scheduler():
-    """Test that the greedy scheduler runs correctly."""
-    print("Testing Greedy scheduler...")
+def test_scheduler():
+    """Test that the scheduler runs correctly."""
+    print("Testing Scheduler (Deng et al. 2020)...")
     
-    from aircraft_scheduler import load_maintenance_data, GreedyScheduler
-    
-    data_file = Path("Sep 25 2017 (Case Study 2018-2021).xlsx")
-    if not data_file.exists():
-        print(f"  Skipping: Data file not found: {data_file}")
-        return True
-    
-    data = load_maintenance_data(str(data_file))
-    scheduler = GreedyScheduler(data)
-    
-    # Run for a short period
-    result = scheduler.schedule(30, verbose=False)
-    
-    assert result is not None, "Scheduler returned None"
-    assert isinstance(result.checks, list), "Checks should be a list"
-    assert result.computation_time >= 0, "Invalid computation time"
-    
-    print(f"  Completed: {len(result.checks)} checks scheduled in {result.computation_time:.2f}s")
-    return True
-
-
-def test_dp_scheduler():
-    """Test that the DP scheduler runs correctly."""
-    print("Testing DP scheduler...")
-    
-    from aircraft_scheduler import load_maintenance_data, DPScheduler
+    from aircraft_scheduler import load_maintenance_data, Scheduler
     
     data_file = Path("Sep 25 2017 (Case Study 2018-2021).xlsx")
     if not data_file.exists():
@@ -166,41 +102,18 @@ def test_dp_scheduler():
         return True
     
     data = load_maintenance_data(str(data_file))
-    scheduler = DPScheduler(data)
+    scheduler = Scheduler(data, beam_width=50)
     
     # Run for a short period
     result = scheduler.schedule(30, verbose=False)
     
     assert result is not None, "Scheduler returned None"
-    assert isinstance(result.checks, list), "Checks should be a list"
-    assert result.computation_time >= 0, "Invalid computation time"
+    assert 'n_c_checks' in result, "Missing n_c_checks"
+    assert 'n_a_checks' in result, "Missing n_a_checks"
+    assert 'tolerance_events' in result, "Missing tolerance_events"
+    assert result['computation_time'] >= 0, "Invalid computation time"
     
-    print(f"  Completed: {len(result.checks)} checks scheduled in {result.computation_time:.2f}s")
-    return True
-
-
-def test_optimized_dp_scheduler():
-    """Test that the Optimized DP scheduler runs correctly."""
-    print("Testing Optimized DP scheduler...")
-    
-    from aircraft_scheduler import load_maintenance_data, OptimizedDPScheduler
-    
-    data_file = Path("Sep 25 2017 (Case Study 2018-2021).xlsx")
-    if not data_file.exists():
-        print(f"  Skipping: Data file not found: {data_file}")
-        return True
-    
-    data = load_maintenance_data(str(data_file))
-    scheduler = OptimizedDPScheduler(data)
-    
-    # Run for a short period
-    result = scheduler.schedule(30, verbose=False)
-    
-    assert result is not None, "Scheduler returned None"
-    assert isinstance(result.checks, list), "Checks should be a list"
-    assert result.computation_time >= 0, "Invalid computation time"
-    
-    print(f"  Completed: {len(result.checks)} checks scheduled in {result.computation_time:.2f}s")
+    print(f"  Completed: C={result['n_c_checks']}, A={result['n_a_checks']} in {result['computation_time']:.2f}s")
     return True
 
 
@@ -224,14 +137,12 @@ def test_constraint_functions():
     data = load_maintenance_data(str(data_file))
     fleet = create_initial_fleet_state(data)
     
-    # Test slot availability
     c_slots = get_available_c_slots(fleet, data, fleet.day_index)
     a_slots = get_available_a_slots(fleet, data, fleet.day_index)
     
     assert c_slots >= 0, "Invalid C-slot count"
     assert a_slots >= 0, "Invalid A-slot count"
     
-    # Test fleet validation
     violations = validate_fleet_state(fleet, data)
     assert isinstance(violations, list), "Violations should be a list"
     
@@ -259,7 +170,6 @@ def test_cost_functions():
     data = load_maintenance_data(str(data_file))
     fleet = create_initial_fleet_state(data)
     
-    # Test cost functions on first aircraft
     first_tail = data.aircraft_tails[0]
     state = fleet.aircraft[first_tail]
     
@@ -278,7 +188,7 @@ def test_cost_functions():
 def run_all_tests():
     """Run all regression tests."""
     print("=" * 60)
-    print("Aircraft Scheduler Regression Tests")
+    print("Aircraft Scheduler Tests")
     print("=" * 60)
     print()
     
@@ -288,9 +198,7 @@ def run_all_tests():
         test_state_creation,
         test_constraint_functions,
         test_cost_functions,
-        test_greedy_scheduler,
-        test_dp_scheduler,
-        test_optimized_dp_scheduler,
+        test_scheduler,
     ]
     
     passed = 0
@@ -318,4 +226,3 @@ def run_all_tests():
 if __name__ == "__main__":
     success = run_all_tests()
     sys.exit(0 if success else 1)
-

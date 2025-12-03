@@ -780,20 +780,28 @@ def plot_fleet_timeline(
 
 if __name__ == "__main__":
     from .data_loader import load_maintenance_data
-    from .solver import DPScheduler
+    from .jax_solver import Scheduler
 
     print("Loading data...")
     data = load_maintenance_data("../Sep 25 2017 (Case Study 2018-2021).xlsx")
 
-    print("Running DP scheduler...")
-    scheduler = DPScheduler(data)
-    result = scheduler.schedule(365, verbose=False)
+    print("Running scheduler...")
+    scheduler = Scheduler(data, beam_width=100)
+    sched_result = scheduler.schedule(365, verbose=False)
+    
+    # Convert to ScheduleResult for visualization
+    result = ScheduleResult(
+        checks=[],  # Scheduler doesn't track individual checks
+        total_a_checks=sched_result['n_a_checks'],
+        total_c_checks=sched_result['n_c_checks'],
+        total_d_checks=0,
+        computation_time=sched_result['computation_time'],
+        total_tolerance_events=sched_result['tolerance_events'],
+    )
 
-    print("\nGenerating visualizations...")
-    plot_gantt_chart(result, data, "gantt_test.png")
-    plot_check_distribution(result, data, "distribution_test.png")
-    plot_capacity_utilization(result, data, "capacity_test.png")
-    plot_wasted_interval_analysis(result, data, "wasted_test.png")
+    print(f"\nSchedule: {result.total_a_checks} A-checks, {result.total_c_checks} C-checks")
+    print(f"Tolerance events: {result.total_tolerance_events}")
+    print("Note: Detailed visualizations require individual check tracking")
 
     print("\nDone!")
 

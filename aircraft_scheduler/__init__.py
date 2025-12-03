@@ -69,24 +69,16 @@ from .core import (
 )
 
 from .solver import (
-    # Check and result classes
+    # Result data structures
     ScheduledCheck,
     ScheduleResult,
     Table3KPIs,
     FleetAction,
-    # Action enumeration (Paper's 7 actions)
     PAPER_ACTIONS,
-    enumerate_fleet_actions,
-    enumerate_mandatory_actions,
-    # Schedulers
-    GreedyScheduler,
-    DPScheduler,
-    OptimizedDPScheduler,
-    compare_schedulers,
 )
 
-# Paper-faithful Deng et al. (2020) implementation
-from .jax_solver import DengScheduler
+# Main scheduler implementation
+from .jax_solver import Scheduler, DengScheduler
 
 from .visualization import (
     plot_gantt_chart,
@@ -167,13 +159,8 @@ __all__ = [
     "Table3KPIs",
     "FleetAction",
     "PAPER_ACTIONS",
-    "enumerate_fleet_actions",
-    "enumerate_mandatory_actions",
-    "GreedyScheduler",
-    "DPScheduler",
-    "OptimizedDPScheduler",
-    "DengScheduler",  # Paper-faithful implementation (jax_solver.py)
-    "compare_schedulers",
+    "Scheduler",
+    "DengScheduler",  # Alias for backward compatibility
     # Visualization
     "plot_gantt_chart",
     "plot_check_distribution",
