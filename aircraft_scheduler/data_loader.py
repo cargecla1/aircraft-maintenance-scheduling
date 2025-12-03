@@ -129,11 +129,17 @@ class AdditionalSlots:
 
 @dataclass
 class Config:
-    """Configuration parameters for optimization."""
+    """Configuration parameters for optimization.
+    
+    Per paper's Equation 28, the cost function has three terms:
+    - Unused FH at checks (primary objective)
+    - P_a * theta: tolerance penalty (tolerance_penalty)
+    - P_d * eta: ground-waiting penalty (ground_waiting_penalty)
+    """
     begin_year: int
     total_years: int
     begin_day: date
-    m_cost: float  # Penalty for no available slot
+    m_cost: float  # Legacy: unified penalty (deprecated, use tolerance_penalty/ground_waiting_penalty)
     c_cost: float  # Penalty for additional C-check slot
     max_c_check: int  # Hangar capacity for C-checks
     max_a_check: int  # Hangar capacity for A-checks
@@ -150,6 +156,17 @@ class Config:
     dta_min: int  # Lower bound to prevent scheduling A-check too often
     c_task_types: dict[str, int]  # Task type -> slot code
     a_task_types: dict[str, int]  # Task type -> slot code
+    # Paper's Eq. 28 penalties (P_a and P_d)
+    tolerance_penalty: float = 0.0  # P_a: penalty when tolerance is used (requires regulatory approval)
+    ground_waiting_penalty: float = 0.0  # P_d: penalty when aircraft is grounded waiting for slot
+    d_check_min_tat: int = 21  # Minimum TAT (days) for D-checks (heavy C-checks)
+    
+    def __post_init__(self):
+        """Set penalty defaults from m_cost if not explicitly provided."""
+        if self.tolerance_penalty == 0.0:
+            self.tolerance_penalty = self.m_cost
+        if self.ground_waiting_penalty == 0.0:
+            self.ground_waiting_penalty = self.m_cost
 
 
 @dataclass

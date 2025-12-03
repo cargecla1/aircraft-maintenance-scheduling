@@ -7,6 +7,7 @@ Generates Gantt charts, distribution plots, and reports.
 from datetime import date, timedelta
 from collections import defaultdict
 from typing import Optional
+import json
 
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -14,7 +15,7 @@ import matplotlib.dates as mdates
 import numpy as np
 
 from .data_loader import MaintenanceData
-from .solver import ScheduleResult, ScheduledCheck
+from .solver import ScheduleResult, ScheduledCheck, Table3KPIs
 
 
 # Color scheme for check types
@@ -284,7 +285,7 @@ def plot_wasted_interval_analysis(
     output_path: str,
 ):
     """
-    Plot wasted interval analysis.
+    Plot unused FH analysis (paper's eq. 28 objective).
     
     Args:
         result: Schedule result
@@ -296,45 +297,45 @@ def plot_wasted_interval_analysis(
         return
 
     # Separate checks by type
-    a_wasted = [c.wasted_interval for c in result.checks if c.check_type == "A"]
-    c_wasted = [c.wasted_interval for c in result.checks if c.check_type == "C"]
-    d_wasted = [c.wasted_interval for c in result.checks if c.check_type == "D"]
+    a_unused = [c.unused_fh for c in result.checks if c.check_type == "A"]
+    c_unused = [c.total_unused_fh for c in result.checks if c.check_type == "C"]
+    d_unused = [c.total_unused_fh for c in result.checks if c.check_type == "D"]
 
     fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
     # A-check histogram
-    if a_wasted:
-        axes[0].hist(a_wasted, bins=20, color=CHECK_COLORS["A"], edgecolor="black", alpha=0.7)
-        axes[0].axvline(np.mean(a_wasted), color="red", linestyle="--", label=f"Mean: {np.mean(a_wasted):.1f}")
-        axes[0].set_title(f"A-check Wasted Interval\n(n={len(a_wasted)})")
-        axes[0].set_xlabel("Wasted Interval")
+    if a_unused:
+        axes[0].hist(a_unused, bins=20, color=CHECK_COLORS["A"], edgecolor="black", alpha=0.7)
+        axes[0].axvline(np.mean(a_unused), color="red", linestyle="--", label=f"Mean: {np.mean(a_unused):.1f}")
+        axes[0].set_title(f"A-check Unused FH\n(n={len(a_unused)})")
+        axes[0].set_xlabel("Unused FH")
         axes[0].set_ylabel("Count")
         axes[0].legend()
 
     # C-check histogram
-    if c_wasted:
-        axes[1].hist(c_wasted, bins=20, color=CHECK_COLORS["C"], edgecolor="black", alpha=0.7)
-        axes[1].axvline(np.mean(c_wasted), color="red", linestyle="--", label=f"Mean: {np.mean(c_wasted):.1f}")
-        axes[1].set_title(f"C-check Wasted Interval\n(n={len(c_wasted)})")
-        axes[1].set_xlabel("Wasted Interval")
+    if c_unused:
+        axes[1].hist(c_unused, bins=20, color=CHECK_COLORS["C"], edgecolor="black", alpha=0.7)
+        axes[1].axvline(np.mean(c_unused), color="red", linestyle="--", label=f"Mean: {np.mean(c_unused):.1f}")
+        axes[1].set_title(f"C-check Unused FH\n(n={len(c_unused)})")
+        axes[1].set_xlabel("Unused FH")
         axes[1].set_ylabel("Count")
         axes[1].legend()
 
     # D-check histogram
-    if d_wasted:
-        axes[2].hist(d_wasted, bins=20, color=CHECK_COLORS["D"], edgecolor="black", alpha=0.7)
-        axes[2].axvline(np.mean(d_wasted), color="red", linestyle="--", label=f"Mean: {np.mean(d_wasted):.1f}")
-        axes[2].set_title(f"D-check Wasted Interval\n(n={len(d_wasted)})")
-        axes[2].set_xlabel("Wasted Interval")
+    if d_unused:
+        axes[2].hist(d_unused, bins=20, color=CHECK_COLORS["D"], edgecolor="black", alpha=0.7)
+        axes[2].axvline(np.mean(d_unused), color="red", linestyle="--", label=f"Mean: {np.mean(d_unused):.1f}")
+        axes[2].set_title(f"D-check Unused FH\n(n={len(d_unused)})")
+        axes[2].set_xlabel("Unused FH")
         axes[2].set_ylabel("Count")
         axes[2].legend()
 
-    plt.suptitle("Wasted Interval Distribution by Check Type")
+    plt.suptitle("Unused Flight Hours by Check Type")
     plt.tight_layout()
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     plt.close()
 
-    print(f"Wasted interval analysis saved to: {output_path}")
+    print(f"Unused FH analysis saved to: {output_path}")
 
 
 def generate_report(
@@ -365,15 +366,15 @@ def generate_report(
 
         f.write("ALGORITHM COMPARISON\n")
         f.write("-" * 40 + "\n")
-        f.write(f"{'Algorithm':<15} {'A-checks':<10} {'C-checks':<10} {'D-checks':<10} {'Wasted':<15} {'Time':<10}\n")
+        f.write(f"{'Algorithm':<15} {'A-checks':<10} {'C-checks':<10} {'D-checks':<10} {'Unused FH':<15} {'Time':<10}\n")
         f.write("-" * 70 + "\n")
 
         for name, result in results.items():
             f.write(f"{name:<15} {result.total_a_checks:<10} {result.total_c_checks:<10} "
-                   f"{result.total_d_checks:<10} {result.total_wasted:<15.1f} {result.computation_time:<10.2f}s\n")
+                   f"{result.total_d_checks:<10} {result.total_unused_fh:<15.1f} {result.computation_time:<10.2f}s\n")
 
         # Find best algorithm
-        best_name = min(results.keys(), key=lambda k: results[k].total_wasted)
+        best_name = min(results.keys(), key=lambda k: results[k].objective)
         baseline = results.get("greedy", list(results.values())[0])
         best = results[best_name]
 
@@ -383,14 +384,14 @@ def generate_report(
         f.write(f"Best algorithm: {best_name}\n\n")
 
         if baseline != best:
-            wasted_reduction = baseline.total_wasted - best.total_wasted
-            wasted_pct = (wasted_reduction / baseline.total_wasted) * 100 if baseline.total_wasted > 0 else 0
+            unused_reduction = baseline.total_unused_fh - best.total_unused_fh
+            unused_pct = (unused_reduction / baseline.total_unused_fh) * 100 if baseline.total_unused_fh > 0 else 0
             total_baseline = baseline.total_a_checks + baseline.total_c_checks + baseline.total_d_checks
             total_best = best.total_a_checks + best.total_c_checks + best.total_d_checks
             check_reduction = total_baseline - total_best
             check_pct = (check_reduction / total_baseline) * 100 if total_baseline > 0 else 0
 
-            f.write(f"Wasted interval reduction: {wasted_reduction:.1f} ({wasted_pct:.1f}%)\n")
+            f.write(f"Unused FH reduction: {unused_reduction:.1f} ({unused_pct:.1f}%)\n")
             f.write(f"Total check difference: {check_reduction} ({check_pct:.1f}%)\n\n")
 
         # Detailed breakdown for best algorithm
@@ -402,21 +403,295 @@ def generate_report(
         d_checks = [c for c in best.checks if c.check_type == "D"]
 
         if a_checks:
-            avg_a_wasted = sum(c.wasted_interval for c in a_checks) / len(a_checks)
-            f.write(f"A-checks: {len(a_checks)}, Avg wasted: {avg_a_wasted:.1f}\n")
+            avg_a = sum(c.unused_fh for c in a_checks) / len(a_checks)
+            f.write(f"A-checks: {len(a_checks)}, Avg unused FH: {avg_a:.1f}\n")
 
         if c_checks:
-            avg_c_wasted = sum(c.wasted_interval for c in c_checks) / len(c_checks)
-            f.write(f"C-checks: {len(c_checks)}, Avg wasted: {avg_c_wasted:.1f}\n")
+            avg_c = sum(c.total_unused_fh for c in c_checks) / len(c_checks)
+            f.write(f"C-checks: {len(c_checks)}, Avg unused FH: {avg_c:.1f}\n")
 
         if d_checks:
-            avg_d_wasted = sum(c.wasted_interval for c in d_checks) / len(d_checks)
-            f.write(f"D-checks: {len(d_checks)}, Avg wasted: {avg_d_wasted:.1f}\n")
+            avg_d = sum(c.total_unused_fh for c in d_checks) / len(d_checks)
+            f.write(f"D-checks: {len(d_checks)}, Avg unused FH: {avg_d:.1f}\n")
 
         f.write("\n" + "=" * 70 + "\n")
         f.write("END OF REPORT\n")
 
     print(f"Report saved to: {output_path}")
+
+
+def generate_table3_report(
+    results: dict[str, ScheduleResult],
+    data: MaintenanceData,
+    output_path: str,
+    format: str = "text",  # "text", "csv", or "json"
+):
+    """
+    Generate a Table 3-style report matching Deng et al.'s paper format.
+    
+    This report contains all the KPIs from Table 3:
+    - Check counts (A, C, D)
+    - Average FH at checks with std dev
+    - Unused FH (paper's objective)
+    - Tolerance usage statistics
+    
+    Args:
+        results: Dictionary of algorithm name to result
+        data: Maintenance data
+        output_path: Path to save the report
+        format: Output format ("text", "csv", or "json")
+    """
+    # Compute KPIs for all results
+    all_kpis = {name: result.compute_kpis() for name, result in results.items()}
+    
+    if format == "json":
+        # JSON format for programmatic access
+        output = {
+            "metadata": {
+                "n_aircraft": len(data.aircraft_tails),
+                "planning_start": str(data.config.begin_day),
+                "planning_years": data.config.total_years,
+            },
+            "results": {
+                name: {
+                    **kpis.to_dict(),
+                    "computation_time": results[name].computation_time,
+                }
+                for name, kpis in all_kpis.items()
+            }
+        }
+        with open(output_path, "w") as f:
+            json.dump(output, f, indent=2)
+            
+    elif format == "csv":
+        # CSV format for spreadsheet analysis
+        with open(output_path, "w") as f:
+            # Header
+            headers = [
+                "Algorithm",
+                "A-checks", "C-checks", "D-checks",
+                "Avg FH at A", "Std FH at A",
+                "Avg FH at C", "Std FH at C",
+                "Total Unused FH",
+                "Avg Unused FH (A)", "Avg Unused FH (C)",
+                "Total FH Tolerance",
+                "Tol Events (DY)", "Tol Events (FH)", "Tol Events (FC)",
+                "Total Tol Events",
+                "Comp Time (s)"
+            ]
+            f.write(",".join(headers) + "\n")
+            
+            for name, kpis in all_kpis.items():
+                row = [
+                    name,
+                    str(kpis.n_a_checks),
+                    str(kpis.n_c_checks),
+                    str(kpis.n_d_checks),
+                    f"{kpis.avg_fh_at_a_checks:.1f}",
+                    f"{kpis.std_fh_at_a_checks:.1f}",
+                    f"{kpis.avg_fh_at_c_checks:.1f}",
+                    f"{kpis.std_fh_at_c_checks:.1f}",
+                    f"{kpis.total_unused_fh:.1f}",
+                    f"{kpis.avg_unused_fh_a:.1f}",
+                    f"{kpis.avg_unused_fh_c:.1f}",
+                    f"{kpis.total_fh_tolerance_used:.1f}",
+                    str(kpis.tolerance_events_dy),
+                    str(kpis.tolerance_events_fh),
+                    str(kpis.tolerance_events_fc),
+                    str(kpis.total_tolerance_events),
+                    f"{results[name].computation_time:.2f}",
+                ]
+                f.write(",".join(row) + "\n")
+                
+    else:  # text format
+        with open(output_path, "w") as f:
+            f.write("=" * 90 + "\n")
+            f.write("TABLE 3: SCHEDULING RESULTS (Deng et al. Format)\n")
+            f.write("=" * 90 + "\n\n")
+            
+            f.write("DATA SUMMARY\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"Number of aircraft: {len(data.aircraft_tails)}\n")
+            f.write(f"Planning start date: {data.config.begin_day}\n")
+            f.write(f"Planning horizon: {data.config.total_years} years\n\n")
+            
+            # Check counts table
+            f.write("CHECK COUNTS\n")
+            f.write("-" * 60 + "\n")
+            f.write(f"{'Algorithm':<20} {'A-checks':>10} {'C-checks':>10} {'D-checks':>10} {'Total':>10}\n")
+            f.write("-" * 60 + "\n")
+            for name, kpis in all_kpis.items():
+                total = kpis.n_a_checks + kpis.n_c_checks + kpis.n_d_checks
+                f.write(f"{name:<20} {kpis.n_a_checks:>10} {kpis.n_c_checks:>10} {kpis.n_d_checks:>10} {total:>10}\n")
+            f.write("\n")
+            
+            # FH at checks table
+            f.write("FLIGHT HOURS AT CHECKS (Average ± Std Dev)\n")
+            f.write("-" * 60 + "\n")
+            f.write(f"{'Algorithm':<20} {'A-checks':>18} {'C-checks':>18}\n")
+            f.write("-" * 60 + "\n")
+            for name, kpis in all_kpis.items():
+                a_str = f"{kpis.avg_fh_at_a_checks:.1f} ± {kpis.std_fh_at_a_checks:.1f}"
+                c_str = f"{kpis.avg_fh_at_c_checks:.1f} ± {kpis.std_fh_at_c_checks:.1f}"
+                f.write(f"{name:<20} {a_str:>18} {c_str:>18}\n")
+            f.write("\n")
+            
+            # Unused FH table (paper's objective)
+            f.write("UNUSED FLIGHT HOURS (Paper's Objective)\n")
+            f.write("-" * 70 + "\n")
+            f.write(f"{'Algorithm':<20} {'Total':>12} {'Avg per A':>12} {'Avg per C':>12}\n")
+            f.write("-" * 70 + "\n")
+            for name, kpis in all_kpis.items():
+                f.write(f"{name:<20} {kpis.total_unused_fh:>12.1f} {kpis.avg_unused_fh_a:>12.1f} {kpis.avg_unused_fh_c:>12.1f}\n")
+            f.write("\n")
+            
+            # Tolerance usage table
+            f.write("TOLERANCE USAGE\n")
+            f.write("-" * 80 + "\n")
+            f.write(f"{'Algorithm':<20} {'FH Used':>12} {'DY Events':>10} {'FH Events':>10} {'FC Events':>10} {'Total':>10}\n")
+            f.write("-" * 80 + "\n")
+            for name, kpis in all_kpis.items():
+                f.write(f"{name:<20} {kpis.total_fh_tolerance_used:>12.1f} "
+                       f"{kpis.tolerance_events_dy:>10} {kpis.tolerance_events_fh:>10} "
+                       f"{kpis.tolerance_events_fc:>10} {kpis.total_tolerance_events:>10}\n")
+            f.write("\n")
+            
+            # Computation time
+            f.write("COMPUTATION TIME\n")
+            f.write("-" * 40 + "\n")
+            for name in all_kpis.keys():
+                f.write(f"{name:<20} {results[name].computation_time:>10.2f}s\n")
+            f.write("\n")
+            
+            # Best algorithm summary
+            best_by_unused = min(all_kpis.keys(), key=lambda k: all_kpis[k].total_unused_fh)
+            best_by_tol = min(all_kpis.keys(), key=lambda k: all_kpis[k].total_tolerance_events)
+            
+            f.write("=" * 90 + "\n")
+            f.write("SUMMARY\n")
+            f.write("-" * 40 + "\n")
+            f.write(f"Best by unused FH: {best_by_unused} ({all_kpis[best_by_unused].total_unused_fh:.1f})\n")
+            f.write(f"Best by tolerance events: {best_by_tol} ({all_kpis[best_by_tol].total_tolerance_events})\n")
+            f.write("=" * 90 + "\n")
+    
+    print(f"Table 3 report saved to: {output_path}")
+
+
+def plot_fh_distribution(
+    result: ScheduleResult,
+    data: MaintenanceData,
+    output_path: str,
+):
+    """
+    Plot FH distribution at checks (paper-compatible visualization).
+    
+    Args:
+        result: Schedule result
+        data: Maintenance data
+        output_path: Path to save the plot
+    """
+    if not result.checks:
+        print("No checks to visualize")
+        return
+
+    # Separate checks by type
+    a_fh = [c.fh_at_check for c in result.checks if c.check_type == "A"]
+    c_fh = [c.fh_at_check for c in result.checks if c.check_type in ("C", "D")]
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    # A-check FH distribution
+    if a_fh:
+        axes[0].hist(a_fh, bins=20, color=CHECK_COLORS["A"], edgecolor="black", alpha=0.7)
+        mean_a = np.mean(a_fh)
+        std_a = np.std(a_fh)
+        axes[0].axvline(mean_a, color="red", linestyle="--", linewidth=2,
+                       label=f"Mean: {mean_a:.1f}")
+        axes[0].axvline(mean_a - std_a, color="orange", linestyle=":", linewidth=1.5)
+        axes[0].axvline(mean_a + std_a, color="orange", linestyle=":", linewidth=1.5,
+                       label=f"Std: {std_a:.1f}")
+        axes[0].set_title(f"A-check FH Distribution\n(n={len(a_fh)})")
+        axes[0].set_xlabel("Flight Hours at Check")
+        axes[0].set_ylabel("Count")
+        axes[0].legend()
+
+    # C-check FH distribution
+    if c_fh:
+        axes[1].hist(c_fh, bins=20, color=CHECK_COLORS["C"], edgecolor="black", alpha=0.7)
+        mean_c = np.mean(c_fh)
+        std_c = np.std(c_fh)
+        axes[1].axvline(mean_c, color="red", linestyle="--", linewidth=2,
+                       label=f"Mean: {mean_c:.1f}")
+        axes[1].axvline(mean_c - std_c, color="orange", linestyle=":", linewidth=1.5)
+        axes[1].axvline(mean_c + std_c, color="orange", linestyle=":", linewidth=1.5,
+                       label=f"Std: {std_c:.1f}")
+        axes[1].set_title(f"C-check FH Distribution\n(n={len(c_fh)})")
+        axes[1].set_xlabel("Flight Hours at Check")
+        axes[1].set_ylabel("Count")
+        axes[1].legend()
+
+    plt.suptitle("Flight Hours at Checks (Paper Table 3 Metric)")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    print(f"FH distribution plot saved to: {output_path}")
+
+
+def plot_tolerance_analysis(
+    result: ScheduleResult,
+    data: MaintenanceData,
+    output_path: str,
+):
+    """
+    Plot tolerance usage analysis (paper-compatible visualization).
+    
+    Args:
+        result: Schedule result
+        data: Maintenance data
+        output_path: Path to save the plot
+    """
+    if not result.checks:
+        print("No checks to visualize")
+        return
+
+    kpis = result.compute_kpis()
+
+    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
+
+    # Tolerance events by type
+    tol_types = ['DY', 'FH', 'FC']
+    tol_counts = [kpis.tolerance_events_dy, kpis.tolerance_events_fh, kpis.tolerance_events_fc]
+    colors = ['#FF6B6B', '#4ECDC4', '#45B7D1']
+    
+    axes[0].bar(tol_types, tol_counts, color=colors, edgecolor="black")
+    axes[0].set_title("Tolerance Events by Type")
+    axes[0].set_xlabel("Tolerance Type")
+    axes[0].set_ylabel("Number of Events")
+    for i, (t, c) in enumerate(zip(tol_types, tol_counts)):
+        axes[0].annotate(str(c), xy=(i, c), ha='center', va='bottom')
+
+    # Tolerance FH distribution
+    tol_fh = [c.used_tolerance_fh for c in result.checks if c.used_tolerance_fh > 0]
+    if tol_fh:
+        axes[1].hist(tol_fh, bins=20, color='#FF6B6B', edgecolor="black", alpha=0.7)
+        axes[1].axvline(np.mean(tol_fh), color="red", linestyle="--",
+                       label=f"Mean: {np.mean(tol_fh):.1f}")
+        axes[1].set_title(f"FH Tolerance Used per Check\n(n={len(tol_fh)} events)")
+        axes[1].set_xlabel("Flight Hours Beyond Interval")
+        axes[1].set_ylabel("Count")
+        axes[1].legend()
+    else:
+        axes[1].text(0.5, 0.5, "No tolerance usage",
+                    ha='center', va='center', transform=axes[1].transAxes)
+        axes[1].set_title("FH Tolerance Used per Check")
+
+    plt.suptitle("Tolerance Usage Analysis (Paper KPIs)")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches="tight")
+    plt.close()
+
+    print(f"Tolerance analysis plot saved to: {output_path}")
 
 
 def plot_fleet_timeline(

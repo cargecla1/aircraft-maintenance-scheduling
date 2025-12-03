@@ -55,10 +55,10 @@ def test_imports():
         is_c_check_not_allowed,
         is_a_check_not_allowed,
         validate_fleet_state,
-        # Cost
+        # Cost (Paper eq. 28)
         CheckCost,
-        calculate_a_check_wasted_interval,
-        calculate_c_check_wasted_interval,
+        calculate_a_check_cost,
+        calculate_c_check_cost,
         calculate_urgency_score,
         calculate_overdue_penalty,
         # Solver
@@ -246,8 +246,8 @@ def test_cost_functions():
     from aircraft_scheduler import (
         load_maintenance_data,
         create_initial_fleet_state,
-        calculate_a_check_wasted_interval,
-        calculate_c_check_wasted_interval,
+        calculate_a_check_cost,
+        calculate_c_check_cost,
         calculate_urgency_score,
     )
     
@@ -263,8 +263,8 @@ def test_cost_functions():
     first_tail = data.aircraft_tails[0]
     state = fleet.aircraft[first_tail]
     
-    a_cost = calculate_a_check_wasted_interval(state, data.config)
-    c_cost = calculate_c_check_wasted_interval(state, data.config)
+    a_cost = calculate_a_check_cost(state, data.config)
+    c_cost = calculate_c_check_cost(state, data.config)
     urgency = calculate_urgency_score(state, data.config)
     
     assert a_cost.total >= 0, "Invalid A-check cost"

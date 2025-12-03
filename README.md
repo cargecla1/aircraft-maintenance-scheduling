@@ -26,10 +26,16 @@ Airlines must schedule periodic A-checks (every ~120 days/750 FH) and C-checks (
 - If no check: aircraft ages by 1 day + daily FH/FC
 - If check scheduled: reset counters, ground aircraft for check duration
 
-**Cost** `c(s_t, x_t)`: Sum of wasted intervals for scheduled checks:
+**Cost** `c(s_t, x_t)`: Paper's Equation 28 cost function:
 ```
-wasted = (interval_DY - actual_DY) + (interval_FH - actual_FH) + (interval_FC - actual_FC)
+cost = sum(unused_FH at checks) + P_a * θ + P_d * η
 ```
+Where:
+- `unused_FH = interval_FH - actual_FH` (primary objective, FH only)
+- `P_a * θ`: tolerance penalty when regulatory tolerance is used
+- `P_d * η`: ground-waiting penalty when aircraft waits for hangar slot
+
+Note: The implementation uses **FH only** for unused intervals (not DY or FC), matching the paper's practical focus on flight hours as the key utilization metric.
 
 ## Solution Method
 
@@ -70,10 +76,9 @@ On the paper's dataset (45 aircraft, 4-year horizon):
 ## Files
 
 - `main.py` - CLI entry point
-- `solver.py` - Greedy and DP scheduling algorithms  
-- `state.py` - Aircraft/fleet state representation
-- `dynamics.py` - State transitions and aging
-- `cost.py` - Wasted interval calculations
-- `constraints.py` - Capacity and holiday constraints
-- `data_loader.py` - Excel parser
-- `visualization.py` - Gantt charts and plots
+- `aircraft_scheduler/` - Main package:
+  - `__init__.py` - Package exports
+  - `core.py` - State representation, dynamics, constraints, and cost functions
+  - `solver.py` - Greedy and DP scheduling algorithms (incl. `DengDPScheduler`)
+  - `data_loader.py` - Excel parser for maintenance data
+  - `visualization.py` - Gantt charts, reports, and KPI plotting

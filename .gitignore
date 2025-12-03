@@ -26,3 +26,6 @@ output/
 # Jupyter
 .ipynb_checkpoints/
 
+# Misc/scratch
+misc/
+

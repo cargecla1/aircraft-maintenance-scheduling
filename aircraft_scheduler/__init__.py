@@ -25,6 +25,9 @@ from .core import (
     AircraftState,
     FleetState,
     create_initial_fleet_state,
+    # Check result classes
+    CheckResult,
+    CCheckResult,
     # Dynamics
     age_aircraft,
     advance_fleet_one_day,
@@ -51,25 +54,39 @@ from .core import (
     is_c_check_peak_season,
     is_public_holiday,
     validate_fleet_state,
-    # Cost
+    # Cost (Paper eq. 28)
     CheckCost,
-    calculate_a_check_wasted_interval,
-    calculate_c_check_wasted_interval,
+    FleetCost,
+    calculate_a_check_cost,
+    calculate_c_check_cost,
     calculate_urgency_score,
     calculate_overdue_penalty,
+    calculate_tolerance_penalty,
+    calculate_ground_waiting_penalty,
     calculate_scheduling_benefit,
     calculate_fleet_cost,
     estimate_future_checks,
 )
 
 from .solver import (
+    # Check and result classes
     ScheduledCheck,
     ScheduleResult,
+    Table3KPIs,
+    FleetAction,
+    # Action enumeration (Paper's 7 actions)
+    PAPER_ACTIONS,
+    enumerate_fleet_actions,
+    enumerate_mandatory_actions,
+    # Schedulers
     GreedyScheduler,
     DPScheduler,
     OptimizedDPScheduler,
     compare_schedulers,
 )
+
+# Paper-faithful Deng et al. (2020) implementation
+from .jax_solver import DengScheduler
 
 from .visualization import (
     plot_gantt_chart,
@@ -78,9 +95,13 @@ from .visualization import (
     plot_wasted_interval_analysis,
     plot_fleet_timeline,
     generate_report,
+    # Paper-compatible reporting
+    generate_table3_report,
+    plot_fh_distribution,
+    plot_tolerance_analysis,
 )
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __all__ = [
     # Data loading
     "MaintenanceData",
@@ -99,6 +120,9 @@ __all__ = [
     "AircraftState",
     "FleetState",
     "create_initial_fleet_state",
+    # Check results
+    "CheckResult",
+    "CCheckResult",
     # Dynamics
     "age_aircraft",
     "advance_fleet_one_day",
@@ -125,21 +149,30 @@ __all__ = [
     "is_c_check_peak_season",
     "is_public_holiday",
     "validate_fleet_state",
-    # Cost
+    # Cost (Paper eq. 28)
     "CheckCost",
-    "calculate_a_check_wasted_interval",
-    "calculate_c_check_wasted_interval",
+    "FleetCost",
+    "calculate_a_check_cost",
+    "calculate_c_check_cost",
     "calculate_urgency_score",
     "calculate_overdue_penalty",
+    "calculate_tolerance_penalty",
+    "calculate_ground_waiting_penalty",
     "calculate_scheduling_benefit",
     "calculate_fleet_cost",
     "estimate_future_checks",
     # Solver
     "ScheduledCheck",
     "ScheduleResult",
+    "Table3KPIs",
+    "FleetAction",
+    "PAPER_ACTIONS",
+    "enumerate_fleet_actions",
+    "enumerate_mandatory_actions",
     "GreedyScheduler",
     "DPScheduler",
     "OptimizedDPScheduler",
+    "DengScheduler",  # Paper-faithful implementation (jax_solver.py)
     "compare_schedulers",
     # Visualization
     "plot_gantt_chart",
@@ -148,5 +181,8 @@ __all__ = [
     "plot_wasted_interval_analysis",
     "plot_fleet_timeline",
     "generate_report",
+    "generate_table3_report",
+    "plot_fh_distribution",
+    "plot_tolerance_analysis",
 ]
 

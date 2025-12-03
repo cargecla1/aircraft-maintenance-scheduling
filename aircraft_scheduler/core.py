@@ -93,6 +93,10 @@ class AircraftState:
     # Operation start date
     operation_date: Optional[date] = None
 
+    # Ground-waiting state (needs check but no slot available)
+    is_waiting_for_check: bool = False
+    waiting_check_type: Optional[str] = None  # 'A' or 'C' if waiting
+
     def copy(self) -> "AircraftState":
         """Create a deep copy of this state."""
         return copy.deepcopy(self)
@@ -185,6 +189,70 @@ class AircraftState:
             round(self.a_tolu_fh, 1),
             round(self.a_tolu_fc, 1),
         )
+
+    def is_using_tolerance_c(self) -> bool:
+        """
+        Check if C-check is currently in tolerance zone.
+        
+        Returns True if any of DY/FH/FC exceeds the base interval
+        but is still within interval + tolerance.
+        """
+        past_interval = (
+            self.dy_c > self.c_ci_dy
+            or self.fh_c > self.c_ci_fh
+            or self.fc_c > self.c_ci_fc
+        )
+        within_tolerance = not self.c_check_overdue()
+        return past_interval and within_tolerance
+
+    def is_using_tolerance_a(self) -> bool:
+        """
+        Check if A-check is currently in tolerance zone.
+        
+        Returns True if any of DY/FH/FC exceeds the base interval
+        but is still within interval + tolerance.
+        """
+        past_interval = (
+            self.dy_a > self.a_ci_dy
+            or self.fh_a > self.a_ci_fh
+            or self.fc_a > self.a_ci_fc
+        )
+        within_tolerance = not self.a_check_overdue()
+        return past_interval and within_tolerance
+
+    def is_using_tolerance(self) -> bool:
+        """Check if aircraft is using tolerance for any check type."""
+        return self.is_using_tolerance_a() or self.is_using_tolerance_c()
+
+    @property
+    def c_tolerance_used_now_dy(self) -> int:
+        """Current DY tolerance being used for C-check (if any)."""
+        return max(0, self.dy_c - self.c_ci_dy)
+
+    @property
+    def c_tolerance_used_now_fh(self) -> float:
+        """Current FH tolerance being used for C-check (if any)."""
+        return max(0.0, self.fh_c - self.c_ci_fh)
+
+    @property
+    def c_tolerance_used_now_fc(self) -> float:
+        """Current FC tolerance being used for C-check (if any)."""
+        return max(0.0, self.fc_c - self.c_ci_fc)
+
+    @property
+    def a_tolerance_used_now_dy(self) -> int:
+        """Current DY tolerance being used for A-check (if any)."""
+        return max(0, self.dy_a - self.a_ci_dy)
+
+    @property
+    def a_tolerance_used_now_fh(self) -> float:
+        """Current FH tolerance being used for A-check (if any)."""
+        return max(0.0, self.fh_a - self.a_ci_fh)
+
+    @property
+    def a_tolerance_used_now_fc(self) -> float:
+        """Current FC tolerance being used for A-check (if any)."""
+        return max(0.0, self.fc_a - self.a_ci_fc)
 
 
 @dataclass
@@ -395,29 +463,43 @@ def get_next_c_check_code(
     return None
 
 
+@dataclass
+class CheckResult:
+    """Result of performing an A-check (paper's eq. 28 metrics)."""
+    new_state: "AircraftState"
+    check_type: str  # 'A'
+    
+    # Flight hours data (paper's primary metric)
+    fh_at_check: float  # Actual FH since last check
+    fh_interval: float  # Base FH interval
+    unused_fh: float  # max(0, fh_interval - fh_at_check)
+    
+    # Tolerance usage
+    used_tolerance_fh: float  # max(0, fh - interval)
+    is_tolerance_event: bool  # True if any tolerance was used
+
+
 def perform_a_check(
     state: AircraftState,
     data: MaintenanceData,
     current_date: date,
-) -> tuple[AircraftState, float]:
+) -> CheckResult:
     """
     Perform an A-check on an aircraft.
     
     Returns:
-        Tuple of (new_state, wasted_interval)
+        CheckResult with new state and FH metrics per paper's eq. 28
     """
     new_state = state.copy()
 
-    # Calculate wasted interval (how much earlier than due the check was done)
-    # Wasted = interval - actual usage
-    wasted_dy = max(0, state.a_ci_dy - state.dy_a)
-    wasted_fh = max(0, state.a_ci_fh - state.fh_a)
-    wasted_fc = max(0, state.a_ci_fc - state.fc_a)
+    # Paper's objective: unused FH
+    unused_fh = max(0.0, state.a_ci_fh - state.fh_a)
 
     # Calculate tolerance used (if check was done after interval)
     tolu_dy = max(0, state.dy_a - state.a_ci_dy)
-    tolu_fh = max(0, state.fh_a - state.a_ci_fh)
-    tolu_fc = max(0, state.fc_a - state.a_ci_fc)
+    tolu_fh = max(0.0, state.fh_a - state.a_ci_fh)
+    tolu_fc = max(0.0, state.fc_a - state.a_ci_fc)
+    is_tolerance_event = tolu_dy > 0 or tolu_fh > 0 or tolu_fc > 0
 
     # Reset A-check counters
     new_state.dy_a = 0
@@ -429,20 +511,55 @@ def perform_a_check(
     new_state.a_tolu_fh = tolu_fh
     new_state.a_tolu_fc = tolu_fc
 
+    # Clear waiting state if any
+    new_state.is_waiting_for_check = False
+    new_state.waiting_check_type = None
+
     # Update A-check serial number
     a_cycle = int(state.a_sn)
     a_minor = round((state.a_sn - a_cycle) * 100)
     a_minor += 1
-    if a_minor >= state.a_max * 10:  # Reset cycle (handle decimal like 4.27)
+    if a_minor >= state.a_max * 10:
         a_cycle += 1
         a_minor = 1
     new_state.a_sn = a_cycle + a_minor / 100
     new_state.a_cycle = a_cycle
 
-    # Total wasted interval (normalized)
-    wasted = wasted_dy + wasted_fh + wasted_fc
+    return CheckResult(
+        new_state=new_state,
+        check_type="A",
+        fh_at_check=state.fh_a,
+        fh_interval=state.a_ci_fh,
+        unused_fh=unused_fh,
+        used_tolerance_fh=tolu_fh,
+        is_tolerance_event=is_tolerance_event,
+    )
 
-    return new_state, wasted
+
+@dataclass
+class CCheckResult:
+    """Result of performing a C-check or D-check (paper's eq. 28 metrics)."""
+    new_state: "AircraftState"
+    check_type: str  # 'C' or 'D'
+    elapsed_time: int  # TAT in days
+    
+    # C-check flight hours data (paper's primary metric)
+    fh_at_check: float  # Actual FH since last C-check
+    fh_interval: float  # Base C-check FH interval
+    unused_fh: float  # max(0, fh_interval - fh_at_check)
+    
+    # Merged A-check data
+    a_fh_at_check: float  # FH for merged A-check
+    a_unused_fh: float  # Unused A-check FH
+    
+    # Tolerance usage
+    used_tolerance_fh: float  # max(0, fh - interval)
+    is_tolerance_event: bool  # True if any tolerance was used
+
+    @property
+    def total_unused_fh(self) -> float:
+        """Total unused FH including merged A-check."""
+        return self.unused_fh + self.a_unused_fh
 
 
 def perform_c_check(
@@ -450,36 +567,33 @@ def perform_c_check(
     data: MaintenanceData,
     current_date: date,
     is_d_check: bool = False,
-) -> tuple[AircraftState, float, int]:
+) -> CCheckResult:
     """
     Perform a C-check (or D-check) on an aircraft.
     
     A C-check also resets the A-check counters (A-check is merged).
     
     Returns:
-        Tuple of (new_state, wasted_interval, elapsed_time)
+        CCheckResult with new state and FH metrics per paper's eq. 28
     """
     new_state = state.copy()
 
-    # Calculate wasted interval for C-check
-    wasted_dy = max(0, state.c_ci_dy - state.dy_c)
-    wasted_fh = max(0, state.c_ci_fh - state.fh_c)
-    wasted_fc = max(0, state.c_ci_fc - state.fc_c)
+    # Paper's objective: unused FH for C-check and merged A-check
+    unused_fh_c = max(0.0, state.c_ci_fh - state.fh_c)
+    unused_fh_a = max(0.0, state.a_ci_fh - state.fh_a)
 
-    # Calculate wasted interval for A-check (merged)
-    wasted_a_dy = max(0, state.a_ci_dy - state.dy_a)
-    wasted_a_fh = max(0, state.a_ci_fh - state.fh_a)
-    wasted_a_fc = max(0, state.a_ci_fc - state.fc_a)
-
-    # Calculate tolerance used
+    # Calculate tolerance used for C-check
     tolu_dy = max(0, state.dy_c - state.c_ci_dy)
-    tolu_fh = max(0, state.fh_c - state.c_ci_fh)
-    tolu_fc = max(0, state.fc_c - state.c_ci_fc)
+    tolu_fh = max(0.0, state.fh_c - state.c_ci_fh)
+    tolu_fc = max(0.0, state.fc_c - state.c_ci_fc)
+    is_tolerance_event = tolu_dy > 0 or tolu_fh > 0 or tolu_fc > 0
 
     # Get elapsed time for this check
     elapsed_time = get_c_check_elapsed_time(data, state.tail, 0)
     if is_d_check:
-        elapsed_time = max(elapsed_time, 21)  # D-checks typically longer
+        # D-checks (heavy C-checks) have a minimum TAT - configurable via config.d_check_min_tat
+        d_min_tat = getattr(data.config, 'd_check_min_tat', 21)
+        elapsed_time = max(elapsed_time, d_min_tat)
 
     # Reset C-check counters
     new_state.dy_c = 0
@@ -498,6 +612,10 @@ def perform_c_check(
     new_state.a_tolu_dy = 0
     new_state.a_tolu_fh = 0
     new_state.a_tolu_fc = 0
+
+    # Clear waiting state if any
+    new_state.is_waiting_for_check = False
+    new_state.waiting_check_type = None
 
     # Update C-check serial number
     next_code = get_next_c_check_code(data, state.tail, 0)
@@ -527,11 +645,18 @@ def perform_c_check(
     new_state.a_sn = a_cycle + 0.01
     new_state.a_cycle = a_cycle
 
-    # Total wasted interval
-    wasted = (wasted_dy + wasted_fh + wasted_fc +
-              wasted_a_dy + wasted_a_fh + wasted_a_fc)
-
-    return new_state, wasted, elapsed_time
+    return CCheckResult(
+        new_state=new_state,
+        check_type="D" if is_d_check else "C",
+        elapsed_time=elapsed_time,
+        fh_at_check=state.fh_c,
+        fh_interval=state.c_ci_fh,
+        unused_fh=unused_fh_c,
+        a_fh_at_check=state.fh_a,
+        a_unused_fh=unused_fh_a,
+        used_tolerance_fh=tolu_fh,
+        is_tolerance_event=is_tolerance_event,
+    )
 
 
 def advance_fleet_one_day(
@@ -582,21 +707,21 @@ def schedule_a_check(
     fleet: FleetState,
     data: MaintenanceData,
     tail: str,
-) -> tuple[FleetState, float]:
+) -> tuple[FleetState, CheckResult]:
     """
     Schedule an A-check for an aircraft.
     
     A-checks are assumed to complete in 1 day (overnight).
     
     Returns:
-        Tuple of (new_fleet_state, wasted_interval)
+        Tuple of (new_fleet_state, CheckResult)
     """
     new_fleet = fleet.copy()
     state = new_fleet.aircraft[tail]
 
     # Perform the A-check
-    new_state, wasted = perform_a_check(state, data, fleet.current_date)
-    new_fleet.aircraft[tail] = new_state
+    result = perform_a_check(state, data, fleet.current_date)
+    new_fleet.aircraft[tail] = result.new_state
 
     # Record the scheduled check
     new_fleet.scheduled_a_checks.append((tail, fleet.current_date))
@@ -605,21 +730,21 @@ def schedule_a_check(
     day_idx = fleet.day_index
     new_fleet.a_slots_in_use[day_idx] = new_fleet.a_slots_in_use.get(day_idx, 0) + 1
 
-    return new_fleet, wasted
+    return new_fleet, result
 
 
 def schedule_c_check(
     fleet: FleetState,
     data: MaintenanceData,
     tail: str,
-) -> tuple[FleetState, float, int]:
+) -> tuple[FleetState, CCheckResult]:
     """
     Schedule a C-check for an aircraft.
     
     C-checks ground the aircraft for several days.
     
     Returns:
-        Tuple of (new_fleet_state, wasted_interval, elapsed_time)
+        Tuple of (new_fleet_state, CCheckResult)
     """
     new_fleet = fleet.copy()
     state = new_fleet.aircraft[tail]
@@ -628,29 +753,27 @@ def schedule_c_check(
     is_d_check = state.next_c_check_is_d()
 
     # Perform the C-check
-    new_state, wasted, elapsed_time = perform_c_check(
-        state, data, fleet.current_date, is_d_check
-    )
+    result = perform_c_check(state, data, fleet.current_date, is_d_check)
 
     # Ground the aircraft
-    new_state.is_grounded = True
-    new_state.grounded_until = fleet.current_date + timedelta(days=elapsed_time)
-    new_state.check_type_in_progress = "D" if is_d_check else "C"
+    result.new_state.is_grounded = True
+    result.new_state.grounded_until = fleet.current_date + timedelta(days=result.elapsed_time)
+    result.new_state.check_type_in_progress = "D" if is_d_check else "C"
 
-    new_fleet.aircraft[tail] = new_state
+    new_fleet.aircraft[tail] = result.new_state
 
     # Record the scheduled check
-    new_fleet.scheduled_c_checks.append((tail, fleet.current_date, elapsed_time))
+    new_fleet.scheduled_c_checks.append((tail, fleet.current_date, result.elapsed_time))
 
     # Update C-check slot usage for duration
-    for d in range(elapsed_time):
+    for d in range(result.elapsed_time):
         day_idx = fleet.day_index + d
         new_fleet.c_slots_in_use[day_idx] = new_fleet.c_slots_in_use.get(day_idx, 0) + 1
 
     # Record C-check start date
     new_fleet.recent_c_starts.append(fleet.current_date)
 
-    return new_fleet, wasted, elapsed_time
+    return new_fleet, result
 
 
 # =============================================================================
@@ -1031,71 +1154,101 @@ def validate_fleet_state(
 
 
 # =============================================================================
-# COST FUNCTIONS
+# COST FUNCTIONS (Paper Eq. 28)
 # =============================================================================
+#
+# Paper's cost function C_t(s_t, x_t) has three terms:
+# 1. Unused FH at checks (minimize wasted flight hours)
+# 2. P_a * theta: Penalty for using tolerance (regulatory approval needed)
+# 3. P_d * eta: Penalty for aircraft on ground waiting (no slot available)
+#
+# We use config.m_cost as P_a and P_d (both are large penalties).
+# Note: DY/FH/FC are still used for constraint checking (check is due when ANY
+# exceeds interval), but only FH enters the objective function.
 
 
 @dataclass
 class CheckCost:
-    """Cost breakdown for a single check."""
-    wasted_dy: float  # Wasted calendar days
-    wasted_fh: float  # Wasted flight hours
-    wasted_fc: float  # Wasted flight cycles
-    penalty: float  # Additional penalties (capacity, etc.)
+    """Cost breakdown for a single check (paper's eq. 28)."""
+    unused_fh: float  # Paper's primary objective: unused flight hours
+    tolerance_penalty: float  # P_a * theta (penalty for using tolerance)
+    ground_waiting_penalty: float  # P_d * eta (penalty for waiting on ground)
 
     @property
     def total(self) -> float:
-        """Total cost."""
-        return self.wasted_dy + self.wasted_fh + self.wasted_fc + self.penalty
+        """Total cost per paper's eq. (28)."""
+        return self.unused_fh + self.tolerance_penalty + self.ground_waiting_penalty
 
 
-def calculate_a_check_wasted_interval(
+def calculate_a_check_cost(
     state: AircraftState,
     config: Config,
 ) -> CheckCost:
     """
-    Calculate the wasted interval cost for scheduling an A-check.
+    Calculate the cost for scheduling an A-check (paper's eq. 28).
     
-    Wasted interval = prescribed interval - actual usage
+    Primary cost: unused FH = max(0, FH_interval - FH_actual)
+    Penalty: P_a if tolerance is being used
     """
-    # Wasted = interval - current usage
-    wasted_dy = max(0, state.a_ci_dy - state.dy_a)
-    wasted_fh = max(0, state.a_ci_fh - state.fh_a)
-    wasted_fc = max(0, state.a_ci_fc - state.fc_a)
+    unused_fh = max(0.0, state.a_ci_fh - state.fh_a)
+    tolerance_penalty = config.m_cost if state.is_using_tolerance_a() else 0.0
 
     return CheckCost(
-        wasted_dy=wasted_dy,
-        wasted_fh=wasted_fh,
-        wasted_fc=wasted_fc,
-        penalty=0,
+        unused_fh=unused_fh,
+        tolerance_penalty=tolerance_penalty,
+        ground_waiting_penalty=0.0,
     )
 
 
-def calculate_c_check_wasted_interval(
+def calculate_c_check_cost(
     state: AircraftState,
     config: Config,
 ) -> CheckCost:
     """
-    Calculate the wasted interval cost for scheduling a C-check.
+    Calculate the cost for scheduling a C-check (paper's eq. 28).
     
-    C-check also includes the wasted A-check interval (merged).
+    C-check also includes the merged A-check cost.
+    Primary cost: unused FH (C-check) + unused FH (merged A-check)
+    Penalty: P_a if tolerance is being used
     """
-    # Wasted C-check interval
-    wasted_c_dy = max(0, state.c_ci_dy - state.dy_c)
-    wasted_c_fh = max(0, state.c_ci_fh - state.fh_c)
-    wasted_c_fc = max(0, state.c_ci_fc - state.fc_c)
-
-    # Wasted A-check interval (merged into C-check)
-    wasted_a_dy = max(0, state.a_ci_dy - state.dy_a)
-    wasted_a_fh = max(0, state.a_ci_fh - state.fh_a)
-    wasted_a_fc = max(0, state.a_ci_fc - state.fc_a)
+    unused_fh_c = max(0.0, state.c_ci_fh - state.fh_c)
+    unused_fh_a = max(0.0, state.a_ci_fh - state.fh_a)
+    total_unused_fh = unused_fh_c + unused_fh_a
+    
+    tolerance_penalty = config.m_cost if state.is_using_tolerance_c() else 0.0
 
     return CheckCost(
-        wasted_dy=wasted_c_dy + wasted_a_dy,
-        wasted_fh=wasted_c_fh + wasted_a_fh,
-        wasted_fc=wasted_c_fc + wasted_a_fc,
-        penalty=0,
+        unused_fh=total_unused_fh,
+        tolerance_penalty=tolerance_penalty,
+        ground_waiting_penalty=0.0,
     )
+
+
+def calculate_ground_waiting_penalty(
+    state: AircraftState,
+    config: Config,
+) -> float:
+    """
+    Calculate penalty for aircraft on ground waiting for maintenance (P_d * eta).
+    """
+    if state.is_waiting_for_check:
+        return config.m_cost
+    return 0.0
+
+
+def calculate_tolerance_penalty(
+    state: AircraftState,
+    config: Config,
+) -> float:
+    """
+    Calculate penalty for aircraft using tolerance (P_a * theta).
+    """
+    penalty = 0.0
+    if state.is_using_tolerance_a():
+        penalty += config.m_cost
+    if state.is_using_tolerance_c():
+        penalty += config.m_cost
+    return penalty
 
 
 def calculate_overdue_penalty(
@@ -1105,18 +1258,13 @@ def calculate_overdue_penalty(
     """
     Calculate penalty for an aircraft being overdue on checks.
     
-    Returns a large penalty (M_COST) if any check is overdue.
+    Returns M_COST if any check is overdue.
     """
     penalty = 0.0
-
-    # Check if C-check is overdue
     if state.c_check_overdue():
         penalty += config.m_cost
-
-    # Check if A-check is overdue
     if state.a_check_overdue():
         penalty += config.m_cost
-
     return penalty
 
 
@@ -1159,25 +1307,22 @@ def calculate_scheduling_benefit(
     Positive benefit = scheduling now is more efficient.
     """
     if check_type == "A":
-        # Benefit = avoiding tolerance usage - wasted interval
-        wasted = calculate_a_check_wasted_interval(state, config)
-        # If close to due, benefit is high
+        cost = calculate_a_check_cost(state, config)
         if state.a_check_due():
-            return 1000 - wasted.total
-        elif state.dy_a >= state.a_ci_dy * 0.8:  # Within 80% of interval
-            return 100 - wasted.total
+            return 1000 - cost.total
+        elif state.dy_a >= state.a_ci_dy * 0.8:
+            return 100 - cost.total
         else:
-            return -wasted.total
+            return -cost.total
 
     elif check_type == "C":
-        wasted = calculate_c_check_wasted_interval(state, config)
-        # If close to due, benefit is high
+        cost = calculate_c_check_cost(state, config)
         if state.c_check_due():
-            return 10000 - wasted.total
-        elif state.dy_c >= state.c_ci_dy * 0.8:  # Within 80% of interval
-            return 1000 - wasted.total
+            return 10000 - cost.total
+        elif state.dy_c >= state.c_ci_dy * 0.8:
+            return 1000 - cost.total
         else:
-            return -wasted.total
+            return -cost.total
 
     return 0
 
@@ -1217,19 +1362,54 @@ def estimate_future_checks(
     return a_checks, c_checks
 
 
+@dataclass
+class FleetCost:
+    """Fleet-level cost breakdown per paper's eq. (28)."""
+    tolerance_penalty: float  # Sum of P_a * theta for all aircraft
+    ground_waiting_penalty: float  # Sum of P_d * eta for all aircraft
+    n_tolerance_events: int  # Count of aircraft using tolerance
+    n_ground_waiting: int  # Count of aircraft waiting on ground
+
+    @property
+    def total(self) -> float:
+        """Total fleet cost (penalties only, unused FH computed at check time)."""
+        return self.tolerance_penalty + self.ground_waiting_penalty
+
+
 def calculate_fleet_cost(
     fleet: FleetState,
     config: Config,
-) -> float:
+) -> FleetCost:
     """
-    Calculate the total cost for the current fleet state.
+    Calculate the fleet state cost per paper's eq. (28).
     
-    This includes overdue penalties but not scheduling costs.
+    This includes:
+    - P_a * theta: tolerance usage penalties
+    - P_d * eta: ground-waiting penalties
+    
+    Unused FH is computed when checks are actually scheduled.
     """
-    total_cost = 0.0
+    tolerance_penalty = 0.0
+    ground_waiting_penalty = 0.0
+    n_tolerance = 0
+    n_waiting = 0
 
     for tail, state in fleet.aircraft.items():
-        total_cost += calculate_overdue_penalty(state, config)
+        if state.is_grounded:
+            continue
+            
+        if state.is_using_tolerance():
+            tolerance_penalty += config.m_cost
+            n_tolerance += 1
+            
+        if state.is_waiting_for_check:
+            ground_waiting_penalty += config.m_cost
+            n_waiting += 1
 
-    return total_cost
+    return FleetCost(
+        tolerance_penalty=tolerance_penalty,
+        ground_waiting_penalty=ground_waiting_penalty,
+        n_tolerance_events=n_tolerance,
+        n_ground_waiting=n_waiting,
+    )
 
