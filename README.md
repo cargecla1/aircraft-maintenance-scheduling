@@ -1,8 +1,10 @@
 # Aircraft Maintenance Check Scheduling
 
-Faithful implementation of the forward beam search algorithm from:
+Faithful implementation of the optimization algorithm from:
 
 > Deng, Q., Santos, B.F., Curran, R. (2020). *A practical dynamic programming based methodology for aircraft maintenance check scheduling optimization*. European Journal of Operational Research, 281(2), 256-273.
+
+---
 
 ## Problem Setting
 
@@ -10,37 +12,112 @@ Airlines must schedule periodic maintenance checks for their fleet:
 - **A-checks**: Light maintenance every ~750 flight hours / 120 days
 - **C-checks**: Heavy maintenance every ~7,500 flight hours / 730 days
 
-Checks are triggered by calendar days (DY), flight hours (FH), or flight cycles (FC)—whichever limit is reached first.
+Each aircraft has three utilization counters that accumulate since its last check:
+- **DY** (calendar days)
+- **FH** (flight hours)
+- **FC** (flight cycles)
 
-**Constraints:**
-- Limited hangar capacity (e.g., 3 concurrent C-checks)
-- No C-checks during peak commercial seasons
-- Minimum days between C-check starts
-- A-checks merge into C-checks (when C-check is performed, A-check counter resets)
+A check is **due** when *any* counter exceeds its interval. Regulatory bodies allow a **tolerance buffer** beyond the interval, but using it requires approval and incurs a penalty.
 
-**Objective (Equation 28):**
+---
+
+## Problem Formulation
+
+The paper formulates this as a **Markov Decision Process (MDP)**:
+
+### State Space
+
+For a fleet of N aircraft, the state at time t includes:
+- For each aircraft i: counters (DY, FH, FC) since last A-check and C-check
+- Current intervals (which decrease if tolerance was used previously)
+- Grounding status (days remaining in maintenance)
+
+### Action Space (Table 2)
+
+Each day, the dispatcher chooses how many checks to perform:
+
+| Action | n_a (A-checks) | n_c (C-checks) |
+|--------|----------------|----------------|
+| 0 | 0 | 0 |
+| 1 | 1 | 0 |
+| 2 | 0 | 1 |
+| 3 | 1 | 1 |
+| 4 | 0 | 2 |
+| 5 | 1 | 2 |
+| 6 | 2 | 0 |
+
+Aircraft are assigned to checks using **earliest deadline first** priority (Equations 36-40).
+
+### Transition Dynamics
+
+Given action (n_a, n_c):
+1. Select n_c most urgent aircraft for C-checks, n_a for A-checks
+2. Reset counters for checked aircraft; set grounding time
+3. Advance all non-grounded aircraft by one day (DY += 1, FH += daily_fh, FC += daily_fc)
+
+### Cost Function (Equation 28)
+
 ```
-cost = Σ(unused_FH) + P_a × θ + P_d × η
+C_t = Σ[χ·(I_FH - FH) + (1-χ)·P_a·θ + P_d·η]
 ```
+
 Where:
-- `unused_FH = interval_FH - actual_FH` at each check (primary objective)
-- `P_a × θ`: tolerance penalty for checks requiring regulatory approval
-- `P_d × η`: ground-waiting penalty for overdue aircraft
+- **χ = 1** if a check is performed, **0** otherwise
+- **I_FH - FH**: unused flight hours (scheduling a check early wastes remaining interval)
+- **P_a · θ**: tolerance penalty (θ=1 if check uses regulatory tolerance)
+- **P_d · η**: ground-waiting penalty (η=1 if aircraft is overdue but not in maintenance)
 
-## Algorithm
+**Goal**: Minimize total cost over the planning horizon (typically 4 years).
 
-**Forward Beam Search** (not Bellman DP despite the paper's title):
+### Constraints
 
-1. Maintain frontier of candidate states
-2. At each day, expand by all 7 daily actions (Table 2)
-3. Aggregate states by utilization histogram (Section 4.4)
-4. Prune dominated states (Thrifty algorithm, Section 4.4.1)
-5. Continue until planning horizon
+- **Hangar capacity**: Max concurrent C-checks (typically 3) and A-checks (typically 1)
+- **Peak seasons**: No C-checks during high-demand periods
+- **Minimum interval**: Days between C-check starts (prevents bunching)
 
-Key implementation details:
-- **7 daily actions**: (n_a, n_c) ∈ {(0,0), (1,0), (0,1), (1,1), (0,2), (1,2), (2,0)}
-- **Priority ordering**: Earliest deadline first (Equations 36-40)
-- **State aggregation**: Histogram of fleet utilization for tractability
+---
+
+## Solution Method: Forward Induction
+
+### Why Not Standard DP?
+
+The state space is enormous: with 45 aircraft, each having 6+ continuous state variables, exact dynamic programming is intractable. The paper calls their method "dynamic programming" but it's actually **forward beam search** with state aggregation.
+
+### The Algorithm
+
+```
+1. Initialize frontier = {initial_fleet_state}
+2. For each day t = 1 to T:
+   a. Expand: For each state in frontier, apply all 7 actions
+   b. Aggregate: Group states by utilization histogram
+   c. Prune: Keep only lowest-cost state per histogram group (Thrifty)
+   d. Beam limit: Keep top-k states by cumulative cost
+3. Return best final state
+```
+
+### Key Differences from Bellman DP
+
+| Bellman DP | Forward Induction (this paper) |
+|------------|--------------------------------|
+| Works backward from T to 0 | Works forward from 0 to T |
+| Computes value function V(s) | Tracks cumulative cost |
+| Exact (for finite MDP) | Approximate (beam search) |
+| Needs full state enumeration | Uses state aggregation |
+
+### State Aggregation (Section 4.4)
+
+To make the problem tractable, states are grouped by **utilization histograms**:
+- Discretize each aircraft's FH into bins of size u (e.g., u=100)
+- Count how many aircraft fall in each bin
+- States with identical histograms are considered equivalent
+
+This reduces the state space from continuous to a manageable discrete set.
+
+### Thrifty Pruning (Section 4.4.1)
+
+For states with the same histogram, only keep the one with **lowest cumulative cost**. This is a dominance rule: if two paths lead to the same aggregated state, prefer the cheaper one.
+
+---
 
 ## Installation
 
@@ -65,10 +142,12 @@ print(f"A-checks: {result['n_a_checks']}")
 print(f"Tolerance events: {result['tolerance_events']}")
 ```
 
-Or via CLI:
+CLI:
 ```bash
 python main.py --years 4 --beam-width 200
 ```
+
+---
 
 ## Results
 
@@ -82,35 +161,38 @@ python main.py --years 4 --beam-width 200
 | Computation time | **2.9 min** | ~15 min |
 
 **Notes:**
-- C-check count matches the paper closely ✓
-- A-check count is higher, likely due to different counting methodology (we count all A-check resets; paper may exclude those merged into C-checks)
-- Tolerance events are low (5 over 4 years = regulatory approval needed only 5 times)
-- Computation is ~5x faster than reported in the paper
+- C-check count matches the paper ✓
+- A-check count differs (likely different counting methodology)
+- Computation is ~5x faster than reported
 
-**1-Year Results:**
-- C-checks: 25, A-checks: 202, Tolerance events: 1, Time: 42s
+**1-Year Results:** C=25, A=202, Tolerance=1, Time=42s
 
-## Files
+---
 
-- `main.py` - CLI entry point
-- `aircraft_scheduler/`
-  - `jax_solver.py` - Main scheduler implementation (`Scheduler` class)
-  - `solver.py` - Result data structures (`ScheduleResult`, `Table3KPIs`)
-  - `core.py` - State representation, dynamics, constraints, cost functions
-  - `data_loader.py` - Excel parser for maintenance data
-  - `visualization.py` - Plotting utilities
+## Project Structure
+
+```
+aircraft_scheduler/
+├── jax_solver.py      # Scheduler: forward beam search implementation
+├── solver.py          # Data structures (ScheduleResult, Table3KPIs)
+├── core.py            # State, dynamics, constraints, cost functions
+├── data_loader.py     # Excel parser
+└── visualization.py   # Plotting utilities
+```
+
+---
 
 ## References
 
 ```bibtex
 @article{deng2020practical,
-  title={A practical dynamic programming based methodology for aircraft maintenance check scheduling optimization},
+  title={A practical dynamic programming based methodology for aircraft 
+         maintenance check scheduling optimization},
   author={Deng, Qichen and Santos, Bruno F and Curran, Richard},
   journal={European Journal of Operational Research},
   volume={281},
   number={2},
   pages={256--273},
-  year={2020},
-  publisher={Elsevier}
+  year={2020}
 }
 ```
