@@ -151,7 +151,7 @@ python main.py --years 4 --beam-width 200
 
 ## Results
 
-**4-Year Benchmark** (45 aircraft, beam_width=200):
+**4-Year Benchmark** (45 aircraft, beam_width=200):0
 
 | Metric | This Implementation | Paper Table 3 | Paper Table 4 |
 |--------|---------------------|---------------|---------------|
@@ -174,10 +174,9 @@ python main.py --years 4 --beam-width 200
 
 ```
 aircraft_scheduler/
-├── jax_solver.py      # Scheduler: forward beam search implementation
-├── solver.py          # Data structures (ScheduleResult, Table3KPIs)
+├── scheduler.py       # Main scheduler implementation
 ├── core.py            # State, dynamics, constraints, cost functions
-├── data_loader.py     # Excel parser
+├── data_loader.py     # Excel data parser
 └── visualization.py   # Plotting utilities
 ```
 

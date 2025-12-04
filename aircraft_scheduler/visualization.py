@@ -15,7 +15,7 @@ import matplotlib.dates as mdates
 import numpy as np
 
 from .data_loader import MaintenanceData
-from .solver import ScheduleResult, ScheduledCheck, Table3KPIs
+from .scheduler import ScheduleResult, ScheduledCheck, Table3KPIs
 
 
 # Color scheme for check types
@@ -780,7 +780,7 @@ def plot_fleet_timeline(
 
 if __name__ == "__main__":
     from .data_loader import load_maintenance_data
-    from .jax_solver import Scheduler
+    from .scheduler import Scheduler
 
     print("Loading data...")
     data = load_maintenance_data("../Sep 25 2017 (Case Study 2018-2021).xlsx")
