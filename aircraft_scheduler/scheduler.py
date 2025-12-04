@@ -455,8 +455,3 @@ class Scheduler:
             'computation_time': computation_time,
             'final_state': best[0],
         }
-
-
-# Backward compatibility alias
-DengScheduler = Scheduler
-

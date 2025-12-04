@@ -66,7 +66,6 @@ from .core import (
 
 from .scheduler import (
     Scheduler,
-    DengScheduler,
     ScheduledCheck,
     ScheduleResult,
     Table3KPIs,
@@ -93,7 +92,7 @@ __all__ = [
     # State
     "AircraftState", "FleetState", "create_initial_fleet_state",
     # Scheduler
-    "Scheduler", "DengScheduler",
+    "Scheduler",
     "ScheduledCheck", "ScheduleResult", "Table3KPIs", "FleetAction", "PAPER_ACTIONS",
     # Visualization
     "plot_gantt_chart", "plot_check_distribution", "generate_report",
