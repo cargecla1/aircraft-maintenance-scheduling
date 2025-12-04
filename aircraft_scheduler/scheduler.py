@@ -36,7 +36,7 @@ Usage:
 """
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from typing import Optional
 from collections import defaultdict
 import numpy as np
@@ -350,10 +350,13 @@ def compute_histogram(state, static, u):
 # =============================================================================
 
 def thrifty_prune(frontier, beam_width):
-    """Apply thrifty dominance pruning."""
+    """Apply thrifty dominance pruning.
+    
+    Entry format: (state, cost, tol, n_c, n_a, histogram, history)
+    """
     by_histogram = defaultdict(list)
     for entry in frontier:
-        by_histogram[entry[5]].append(entry)
+        by_histogram[entry[5]].append(entry)  # entry[5] is histogram
     
     pruned = [min(entries, key=lambda x: x[1]) for entries in by_histogram.values()]
     pruned.sort(key=lambda x: x[1])
@@ -395,13 +398,15 @@ class Scheduler:
         self.max_c = data.config.max_c_check
         self.max_a = data.config.max_a_check
     
-    def schedule(self, planning_days: int, verbose: bool = False) -> dict:
+    def schedule(self, planning_days: int, verbose: bool = False) -> ScheduleResult:
         """
         Run the forward beam search algorithm.
         
-        Returns dict with: total_cost, tolerance_events, n_c_checks, n_a_checks, computation_time
+        Returns ScheduleResult with full schedule (checks with dates and aircraft).
         """
         start_time = time.time()
+        start_date = self.data.config.begin_day
+        tails = self.data.aircraft_tails
         
         if verbose:
             print(f"[Deng] Starting {planning_days}-day schedule, beam={self.beam_width}")
@@ -409,7 +414,9 @@ class Scheduler:
             sys.stdout.flush()
         
         init_hist = compute_histogram(self.initial_state, self.static, self.u)
-        frontier = [(self.initial_state.copy(), 0.0, 0, 0, 0, init_hist)]
+        # Frontier entry: (state, cost, tol, n_c, n_a, histogram, history)
+        # history is list of (day, c_indices, a_indices, state_snapshot) tuples
+        frontier = [(self.initial_state.copy(), 0.0, 0, 0, 0, init_hist, [])]
         
         for day in range(planning_days):
             if verbose and day % 50 == 0:
@@ -422,7 +429,7 @@ class Scheduler:
                 sys.stdout.flush()
             
             next_frontier = []
-            for state, cum_cost, cum_tol, cum_c, cum_a, _ in frontier:
+            for state, cum_cost, cum_tol, cum_c, cum_a, _, history in frontier:
                 for n_a, n_c in PAPER_ACTIONS:
                     n_c = min(n_c, self.max_c)
                     n_a = min(n_a, self.max_a)
@@ -431,10 +438,23 @@ class Scheduler:
                     a_mask = select_aircraft(state, self.static, n_a, 'A', exclude_mask=c_mask)
                     
                     cost, tol, nc, na = compute_check_cost(state, self.static, c_mask, a_mask, self.p_a, self.p_d)
+                    
+                    # Record action if any checks scheduled
+                    if nc > 0 or na > 0:
+                        c_indices = tuple(np.where(c_mask)[0].tolist())
+                        a_indices = tuple(np.where(a_mask)[0].tolist())
+                        # Snapshot state at time of check for FH/tolerance info
+                        state_snap = (state['fh_c'].copy(), state['fh_a'].copy(),
+                                      state['dy_c'].copy(), state['dy_a'].copy())
+                        new_history = history + [(day, c_indices, a_indices, state_snap)]
+                    else:
+                        new_history = history
+                    
                     new_state = apply_action(state, self.static, c_mask, a_mask)
                     new_hist = compute_histogram(new_state, self.static, self.u)
                     
-                    next_frontier.append((new_state, cum_cost + cost, cum_tol + tol, cum_c + nc, cum_a + na, new_hist))
+                    next_frontier.append((new_state, cum_cost + cost, cum_tol + tol, 
+                                         cum_c + nc, cum_a + na, new_hist, new_history))
             
             frontier = thrifty_prune(next_frontier, self.beam_width)
             if not frontier:
@@ -447,11 +467,62 @@ class Scheduler:
             print(f"[Deng] Complete in {computation_time:.1f}s")
             print(f"[Deng] C-checks: {best[3]}, A-checks: {best[4]}, Tolerance: {best[2]}")
         
-        return {
-            'total_cost': best[1],
-            'tolerance_events': best[2],
-            'n_c_checks': best[3],
-            'n_a_checks': best[4],
-            'computation_time': computation_time,
-            'final_state': best[0],
-        }
+        # Convert history to ScheduledCheck objects
+        checks = []
+        for day, c_indices, a_indices, state_snap in best[6]:
+            fh_c, fh_a, dy_c, dy_a = state_snap
+            check_date = start_date + timedelta(days=day)
+            
+            for idx in c_indices:
+                tail = tails[idx]
+                c_interval_fh = self.static['c_ci_fh'][idx]
+                c_interval_dy = self.static['c_ci_dy'][idx]
+                a_interval_fh = self.static['a_ci_fh'][idx]
+                fh_at = float(fh_c[idx])
+                unused = max(0.0, c_interval_fh - fh_at)
+                a_fh_at = float(fh_a[idx])
+                a_unused = max(0.0, a_interval_fh - a_fh_at)
+                is_tol = (dy_c[idx] > c_interval_dy) or (fh_at > c_interval_fh)
+                tat = int(self.static['c_tat'][idx])
+                
+                checks.append(ScheduledCheck(
+                    tail=tail,
+                    check_type='C',
+                    start_date=check_date,
+                    end_date=check_date + timedelta(days=tat - 1),
+                    duration=tat,
+                    fh_at_check=fh_at,
+                    unused_fh=unused,
+                    is_tolerance_event=is_tol,
+                    a_fh_at_check=a_fh_at,
+                    a_unused_fh=a_unused,
+                ))
+            
+            for idx in a_indices:
+                tail = tails[idx]
+                a_interval_fh = self.static['a_ci_fh'][idx]
+                a_interval_dy = self.static['a_ci_dy'][idx]
+                fh_at = float(fh_a[idx])
+                unused = max(0.0, a_interval_fh - fh_at)
+                is_tol = (dy_a[idx] > a_interval_dy) or (fh_at > a_interval_fh)
+                
+                checks.append(ScheduledCheck(
+                    tail=tail,
+                    check_type='A',
+                    start_date=check_date,
+                    end_date=check_date,
+                    duration=1,
+                    fh_at_check=fh_at,
+                    unused_fh=unused,
+                    is_tolerance_event=is_tol,
+                ))
+        
+        return ScheduleResult(
+            checks=checks,
+            total_a_checks=best[4],
+            total_c_checks=best[3],
+            total_d_checks=0,
+            computation_time=computation_time,
+            total_unused_fh=sum(c.total_unused_fh for c in checks),
+            total_tolerance_events=best[2],
+        )

@@ -116,14 +116,18 @@ def plot_gantt_chart(
     ax.set_xlim(mdates.date2num(min_date - timedelta(days=7)),
                 mdates.date2num(max_date + timedelta(days=7)))
 
-    # Add legend
+    # Add legend (only for check types present in results)
     if show_legend:
-        legend_patches = [
-            mpatches.Patch(color=CHECK_COLORS["A"], label="A-check"),
-            mpatches.Patch(color=CHECK_COLORS["C"], label="C-check"),
-            mpatches.Patch(color=CHECK_COLORS["D"], label="D-check"),
-        ]
-        ax.legend(handles=legend_patches, loc="upper right")
+        check_types_present = set(c.check_type for c in result.checks)
+        legend_patches = []
+        if "A" in check_types_present:
+            legend_patches.append(mpatches.Patch(color=CHECK_COLORS["A"], label="A-check"))
+        if "C" in check_types_present:
+            legend_patches.append(mpatches.Patch(color=CHECK_COLORS["C"], label="C-check"))
+        if "D" in check_types_present:
+            legend_patches.append(mpatches.Patch(color=CHECK_COLORS["D"], label="D-check"))
+        if legend_patches:
+            ax.legend(handles=legend_patches, loc="upper right")
 
     # Add grid
     ax.grid(axis="x", alpha=0.3)
@@ -158,6 +162,9 @@ def plot_check_distribution(
         month_key = check.start_date.strftime("%Y-%m")
         checks_by_month[month_key][check.check_type] += 1
 
+    # Determine which check types are present
+    check_types_present = set(c.check_type for c in result.checks)
+
     # Sort months
     months = sorted(checks_by_month.keys())
     a_counts = [checks_by_month[m]["A"] for m in months]
@@ -170,10 +177,15 @@ def plot_check_distribution(
     x = np.arange(len(months))
     width = 0.8
 
-    ax.bar(x, a_counts, width, label="A-check", color=CHECK_COLORS["A"])
-    ax.bar(x, c_counts, width, bottom=a_counts, label="C-check", color=CHECK_COLORS["C"])
-    ax.bar(x, d_counts, width, bottom=[a + c for a, c in zip(a_counts, c_counts)],
-           label="D-check", color=CHECK_COLORS["D"])
+    bottom = np.zeros(len(months))
+    if "A" in check_types_present:
+        ax.bar(x, a_counts, width, label="A-check", color=CHECK_COLORS["A"], bottom=bottom)
+        bottom = np.array(a_counts)
+    if "C" in check_types_present:
+        ax.bar(x, c_counts, width, label="C-check", color=CHECK_COLORS["C"], bottom=bottom)
+        bottom = bottom + np.array(c_counts)
+    if "D" in check_types_present:
+        ax.bar(x, d_counts, width, label="D-check", color=CHECK_COLORS["D"], bottom=bottom)
 
     ax.set_xlabel("Month")
     ax.set_ylabel("Number of Checks")
@@ -762,12 +774,16 @@ def plot_fleet_timeline(
     ax.xaxis.set_major_locator(mdates.MonthLocator(interval=2))
     plt.xticks(rotation=45, ha="right")
 
-    legend_patches = [
-        mpatches.Patch(color=CHECK_COLORS["A"], label="A-check"),
-        mpatches.Patch(color=CHECK_COLORS["C"], label="C-check"),
-        mpatches.Patch(color=CHECK_COLORS["D"], label="D-check"),
-    ]
-    ax.legend(handles=legend_patches, loc="upper right")
+    check_types_present = set(c.check_type for c in result.checks)
+    legend_patches = []
+    if "A" in check_types_present:
+        legend_patches.append(mpatches.Patch(color=CHECK_COLORS["A"], label="A-check"))
+    if "C" in check_types_present:
+        legend_patches.append(mpatches.Patch(color=CHECK_COLORS["C"], label="C-check"))
+    if "D" in check_types_present:
+        legend_patches.append(mpatches.Patch(color=CHECK_COLORS["D"], label="D-check"))
+    if legend_patches:
+        ax.legend(handles=legend_patches, loc="upper right")
 
     ax.grid(axis="x", alpha=0.3)
 

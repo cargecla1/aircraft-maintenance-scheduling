@@ -15,6 +15,9 @@ from pathlib import Path
 from aircraft_scheduler import (
     Scheduler,
     load_maintenance_data,
+    plot_gantt_chart,
+    plot_check_distribution,
+    plot_capacity_utilization,
 )
 
 
@@ -89,11 +92,22 @@ def main() -> None:
     print("=" * 60)
     print("RESULTS")
     print("=" * 60)
-    print(f"C-checks: {result['n_c_checks']}")
-    print(f"A-checks: {result['n_a_checks']}")
-    print(f"Tolerance events: {result['tolerance_events']}")
-    print(f"Total cost: {result['total_cost']:.0f}")
-    print(f"Computation time: {result['computation_time']:.1f}s")
+    print(f"C-checks: {result.total_c_checks}")
+    print(f"A-checks: {result.total_a_checks}")
+    print(f"Tolerance events: {result.total_tolerance_events}")
+    print(f"Unused FH: {result.total_unused_fh:.1f}")
+    print(f"Computation time: {result.computation_time:.1f}s")
+    
+    # Generate visualizations
+    output_dir = Path("output")
+    output_dir.mkdir(exist_ok=True)
+    
+    print()
+    print("Generating visualizations...")
+    plot_gantt_chart(result, data, str(output_dir / "gantt.png"))
+    plot_check_distribution(result, data, str(output_dir / "distribution.png"))
+    plot_capacity_utilization(result, data, str(output_dir / "capacity.png"))
+    print(f"Saved to {output_dir}/")
 
 
 if __name__ == "__main__":
