@@ -94,7 +94,7 @@ def test_scheduler():
     """Test that the scheduler runs correctly."""
     print("Testing Scheduler (Deng et al. 2020)...")
     
-    from aircraft_scheduler import load_maintenance_data, Scheduler
+    from aircraft_scheduler import load_maintenance_data, Scheduler, ScheduleResult
     
     data_file = Path("Sep 25 2017 (Case Study 2018-2021).xlsx")
     if not data_file.exists():
@@ -108,12 +108,13 @@ def test_scheduler():
     result = scheduler.schedule(30, verbose=False)
     
     assert result is not None, "Scheduler returned None"
-    assert 'n_c_checks' in result, "Missing n_c_checks"
-    assert 'n_a_checks' in result, "Missing n_a_checks"
-    assert 'tolerance_events' in result, "Missing tolerance_events"
-    assert result['computation_time'] >= 0, "Invalid computation time"
+    assert isinstance(result, ScheduleResult), "Result should be ScheduleResult"
+    assert result.total_c_checks >= 0, "Invalid C-check count"
+    assert result.total_a_checks >= 0, "Invalid A-check count"
+    assert result.total_tolerance_events >= 0, "Invalid tolerance events"
+    assert result.computation_time >= 0, "Invalid computation time"
     
-    print(f"  Completed: C={result['n_c_checks']}, A={result['n_a_checks']} in {result['computation_time']:.2f}s")
+    print(f"  Completed: C={result.total_c_checks}, A={result.total_a_checks} in {result.computation_time:.2f}s")
     return True
 
 

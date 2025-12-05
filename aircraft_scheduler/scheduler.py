@@ -346,21 +346,143 @@ def compute_histogram(state, static, u):
 
 
 # =============================================================================
+# HEURISTIC FUNCTIONS FOR BEST-FIRST BEAM SEARCH
+# =============================================================================
+
+def heuristic_local_risk(state, static, p_a, p_d):
+    """
+    Ultra-lightweight heuristic: count aircraft in tolerance or grounded.
+    
+    This is a cheap proxy for "how bad is the current situation?"
+    Returns a NORMALIZED score (count of problematic aircraft), not scaled by p_a/p_d.
+    The lambda_h parameter controls how much this influences ranking.
+    """
+    grounded = state['grounded_days'] > 0
+    
+    c_in_tol = (
+        (state['dy_c'] > static['c_ci_dy']) |
+        (state['fh_c'] > static['c_ci_fh']) |
+        (state['fc_c'] > static['c_ci_fc'])
+    )
+    a_in_tol = (
+        (state['dy_a'] > static['a_ci_dy']) |
+        (state['fh_a'] > static['a_ci_fh']) |
+        (state['fc_a'] > static['a_ci_fc'])
+    )
+    
+    n_tol = np.sum(c_in_tol) + np.sum(a_in_tol)
+    n_grounded = np.sum(grounded)
+    
+    # Return weighted count (tolerance is worse than grounded for scheduling)
+    # Scale: ~0 for healthy fleet, ~100 for fleet in trouble
+    return 2.0 * n_tol + 1.0 * n_grounded
+
+
+def heuristic_future_risk(state, static, remaining_days, p_a, p_d):
+    """
+    Time-to-trouble heuristic: estimate future cost from this state.
+    
+    Computes:
+    1. Overdue aircraft that will incur tolerance/grounding penalties
+    2. Low-slack aircraft that are close to limits
+    3. Currently grounded aircraft
+    
+    Returns a NORMALIZED score suitable for comparison between states.
+    The lambda_h parameter controls how much this influences ranking.
+    """
+    n_aircraft = len(state['dy_c'])
+    grounded = state['grounded_days'] > 0
+    
+    # Remaining time to C and A limits (same logic as select_aircraft)
+    remaining_c = np.minimum(
+        static['c_ci_dy'] - state['dy_c'],
+        np.minimum(
+            (static['c_ci_fh'] - state['fh_c']) / np.maximum(static['daily_fh'], 0.1),
+            (static['c_ci_fc'] - state['fc_c']) / np.maximum(static['daily_fc'], 0.1),
+        ),
+    )
+    remaining_a = np.minimum(
+        static['a_ci_dy'] - state['dy_a'],
+        np.minimum(
+            (static['a_ci_fh'] - state['fh_a']) / np.maximum(static['daily_fh'], 0.1),
+            (static['a_ci_fc'] - state['fc_a']) / np.maximum(static['daily_fc'], 0.1),
+        ),
+    )
+    
+    # Decompose into slack (good) and overdue (bad)
+    overdue_c = np.maximum(-remaining_c, 0.0)
+    overdue_a = np.maximum(-remaining_a, 0.0)
+    slack_c = np.maximum(remaining_c, 0.0)
+    slack_a = np.maximum(remaining_a, 0.0)
+    
+    # 1) Estimated future tolerance events from currently overdue aircraft
+    #    Capped by remaining horizon
+    est_tolerance_events = np.minimum(remaining_days, overdue_c + overdue_a).sum()
+    
+    # 2) Low-slack penalty: sum of (1 / (1 + slack)) over all aircraft
+    #    Range: [0, 2*n_aircraft] where higher = more aircraft close to limits
+    inv_slack_c = 1.0 / (1.0 + slack_c)
+    inv_slack_a = 1.0 / (1.0 + slack_a)
+    slack_penalty = (inv_slack_c + inv_slack_a).sum()
+    
+    # 3) Grounded aircraft penalty (count)
+    grounded_count = grounded.sum()
+    
+    # Combine with balanced weights to produce score in range ~[0, 1000]
+    # - Tolerance events: most important (will definitely incur penalty)
+    # - Low slack: moderately important (likely to cause issues)
+    # - Grounded: less important (already paid for, just waiting)
+    return (
+        10.0 * est_tolerance_events    # Heavy weight on future tolerance
+        + 1.0 * slack_penalty          # Moderate weight on low slack  
+        + 0.5 * grounded_count         # Light weight on grounded
+    )
+
+
+# =============================================================================
 # THRIFTY PRUNING (Section 4.4.1)
 # =============================================================================
 
-def thrifty_prune(frontier, beam_width):
-    """Apply thrifty dominance pruning.
+def thrifty_prune(frontier, beam_width, k_per_bucket=1, f_scores=None):
+    """Apply thrifty dominance pruning with optional diversity preservation.
     
     Entry format: (state, cost, tol, n_c, n_a, histogram, history)
-    """
-    by_histogram = defaultdict(list)
-    for entry in frontier:
-        by_histogram[entry[5]].append(entry)  # entry[5] is histogram
     
-    pruned = [min(entries, key=lambda x: x[1]) for entries in by_histogram.values()]
-    pruned.sort(key=lambda x: x[1])
-    return pruned[:beam_width]
+    Args:
+        frontier: List of state entries
+        beam_width: Maximum total states to keep
+        k_per_bucket: Number of states to keep per histogram bucket.
+                      k=1 is original Deng behavior (only best per bucket).
+                      k>1 preserves structural diversity within buckets.
+        f_scores: Optional list of f-scores (g + λh) for best-first ranking.
+                  If provided, uses f-scores instead of g-costs for ranking.
+    """
+    # Build index-aware entries for tracking
+    if f_scores is not None:
+        indexed = [(f_scores[i], i, frontier[i]) for i in range(len(frontier))]
+        get_score = lambda x: x[0]  # f-score
+        get_entry = lambda x: x[2]  # original entry
+    else:
+        indexed = [(entry[1], i, entry) for i, entry in enumerate(frontier)]
+        get_score = lambda x: x[0]  # g-cost
+        get_entry = lambda x: x[2]  # original entry
+    
+    # Group by histogram
+    by_histogram = defaultdict(list)
+    for item in indexed:
+        entry = get_entry(item)
+        by_histogram[entry[5]].append(item)  # entry[5] is histogram
+    
+    pruned = []
+    for entries in by_histogram.values():
+        # Sort by score (f or g) within bucket
+        entries.sort(key=get_score)
+        # Keep top-k from this bucket
+        pruned.extend(entries[:k_per_bucket])
+    
+    # Global sort by score and cap at beam_width
+    pruned.sort(key=get_score)
+    return [get_entry(x) for x in pruned[:beam_width]]
 
 
 # =============================================================================
@@ -377,6 +499,12 @@ class Scheduler:
         u: Discretization step for histograms (default 100.0)
         p_a: Tolerance penalty (default 10^8)
         p_d: Ground-waiting penalty (default 10^8)
+        
+    Variant parameters (extensions beyond base Deng algorithm):
+        use_heuristic: Enable best-first beam with lookahead heuristic
+        heuristic_type: 'local' (fast) or 'future' (more accurate)
+        lambda_h: Weight for heuristic in f = g + λh ranking (default 0.01)
+        k_per_bucket: States to keep per histogram bucket (default 1 = original)
     """
     
     def __init__(
@@ -386,12 +514,24 @@ class Scheduler:
         u: float = 100.0,
         p_a: float = 1e8,
         p_d: float = 1e8,
+        # Variant parameters
+        use_heuristic: bool = False,
+        heuristic_type: str = 'future',  # 'local' or 'future'
+        lambda_h: float = 0.01,
+        k_per_bucket: int = 1,
     ):
         self.data = data
         self.beam_width = beam_width
         self.u = u
         self.p_a = p_a
         self.p_d = p_d
+        
+        # Variant options
+        self.use_heuristic = use_heuristic
+        self.heuristic_type = heuristic_type
+        self.lambda_h = lambda_h
+        self.k_per_bucket = k_per_bucket
+        
         self.initial_state = create_fleet_state(data)
         self.static = create_static_params(data)
         self.n_aircraft = len(data.aircraft_tails)
@@ -409,7 +549,14 @@ class Scheduler:
         tails = self.data.aircraft_tails
         
         if verbose:
-            print(f"[Deng] Starting {planning_days}-day schedule, beam={self.beam_width}")
+            variant_info = []
+            if self.use_heuristic:
+                variant_info.append(f"heuristic={self.heuristic_type}(λ={self.lambda_h})")
+            if self.k_per_bucket > 1:
+                variant_info.append(f"k_per_bucket={self.k_per_bucket}")
+            variant_str = f" [{', '.join(variant_info)}]" if variant_info else ""
+            
+            print(f"[Deng] Starting {planning_days}-day schedule, beam={self.beam_width}{variant_str}")
             print(f"[Deng] Fleet: {self.n_aircraft} aircraft, P_a={self.p_a:.0e}, P_d={self.p_d:.0e}")
             sys.stdout.flush()
         
@@ -456,7 +603,20 @@ class Scheduler:
                     next_frontier.append((new_state, cum_cost + cost, cum_tol + tol, 
                                          cum_c + nc, cum_a + na, new_hist, new_history))
             
-            frontier = thrifty_prune(next_frontier, self.beam_width)
+            # Best-first beam: compute f = g + λh for ranking
+            if self.use_heuristic:
+                remaining_days = planning_days - day - 1
+                f_scores = []
+                for entry in next_frontier:
+                    state, g_cost = entry[0], entry[1]
+                    if self.heuristic_type == 'local':
+                        h = heuristic_local_risk(state, self.static, self.p_a, self.p_d)
+                    else:  # 'future'
+                        h = heuristic_future_risk(state, self.static, remaining_days, self.p_a, self.p_d)
+                    f_scores.append(g_cost + self.lambda_h * h)
+                frontier = thrifty_prune(next_frontier, self.beam_width, self.k_per_bucket, f_scores)
+            else:
+                frontier = thrifty_prune(next_frontier, self.beam_width, self.k_per_bucket)
             if not frontier:
                 break
         

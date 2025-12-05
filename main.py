@@ -24,6 +24,21 @@ from aircraft_scheduler import (
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Aircraft Maintenance Check Scheduler (Deng et al. 2020)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Variant Examples:
+  # Best-first beam with time-to-trouble heuristic
+  python main.py --heuristic future --lambda-h 0.01
+  
+  # Diversity-preserving beam (keep top-2 per histogram bucket)  
+  python main.py --k-per-bucket 2
+  
+  # Combined: heuristic + diversity
+  python main.py --heuristic future --lambda-h 0.01 --k-per-bucket 2
+  
+  # Fast local heuristic (just counts tolerance/grounded)
+  python main.py --heuristic local --lambda-h 0.1
+""",
     )
     parser.add_argument(
         "--data",
@@ -49,6 +64,28 @@ def main() -> None:
         default=100.0,
         help="Histogram bin size (paper's u parameter).",
     )
+    
+    # Variant options
+    parser.add_argument(
+        "--heuristic",
+        type=str,
+        choices=["none", "local", "future"],
+        default="none",
+        help="Heuristic for best-first beam: 'none' (original), 'local' (fast), 'future' (accurate).",
+    )
+    parser.add_argument(
+        "--lambda-h",
+        type=float,
+        default=0.01,
+        help="Heuristic weight in f = g + λh ranking (default: 0.01).",
+    )
+    parser.add_argument(
+        "--k-per-bucket",
+        type=int,
+        default=1,
+        help="States to keep per histogram bucket (1 = original Deng, >1 = diversity-preserving).",
+    )
+    
     parser.add_argument(
         "--quiet",
         action="store_true",
@@ -79,10 +116,15 @@ def main() -> None:
     print()
 
     # Run scheduler
+    use_heuristic = args.heuristic != "none"
     scheduler = Scheduler(
         data,
         beam_width=args.beam_width,
         u=args.discretization,
+        use_heuristic=use_heuristic,
+        heuristic_type=args.heuristic if use_heuristic else "future",
+        lambda_h=args.lambda_h,
+        k_per_bucket=args.k_per_bucket,
     )
     
     result = scheduler.schedule(planning_days, verbose=not args.quiet)
