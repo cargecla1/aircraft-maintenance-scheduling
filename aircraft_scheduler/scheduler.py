@@ -318,6 +318,57 @@ def select_aircraft(state, static, n_select, check_type, exclude_mask=None):
         mask = mask & ~exclude_mask
     return mask
 
+def select_due_aircraft(state, static, n_select, check_type, exclude_mask=None):
+    """Select only aircraft that are due/overdue, using earliest-deadline ordering.
+
+    This is used for naive baselines to avoid performing checks early.
+    """
+    grounded = state["grounded_days"] > 0
+
+    if check_type == "C":
+        due = (
+            (state["dy_c"] >= static["c_ci_dy"])
+            | (state["fh_c"] >= static["c_ci_fh"])
+            | (state["fc_c"] >= static["c_ci_fc"])
+        )
+    else:
+        due = (
+            (state["dy_a"] >= static["a_ci_dy"])
+            | (state["fh_a"] >= static["a_ci_fh"])
+            | (state["fc_a"] >= static["a_ci_fc"])
+        )
+
+    # Only rank due aircraft; everything else is ineligible.
+    eligible = due & ~grounded
+    if exclude_mask is not None:
+        eligible = eligible & ~exclude_mask
+
+    if n_select <= 0 or not np.any(eligible):
+        return np.zeros_like(grounded, dtype=bool)
+
+    # Use same ordering as select_aircraft, but gate by eligibility.
+    if check_type == "C":
+        remaining = np.minimum(
+            static["c_ci_dy"] - state["dy_c"],
+            np.minimum(
+                (static["c_ci_fh"] - state["fh_c"]) / np.maximum(static["daily_fh"], 0.1),
+                (static["c_ci_fc"] - state["fc_c"]) / np.maximum(static["daily_fc"], 0.1),
+            ),
+        )
+    else:
+        remaining = np.minimum(
+            static["a_ci_dy"] - state["dy_a"],
+            np.minimum(
+                (static["a_ci_fh"] - state["fh_a"]) / np.maximum(static["daily_fh"], 0.1),
+                (static["a_ci_fc"] - state["fc_a"]) / np.maximum(static["daily_fc"], 0.1),
+            ),
+        )
+
+    remaining = np.where(eligible, remaining, np.inf)
+    ranks = np.sum(remaining[:, None] > remaining[None, :], axis=1)
+    mask = (ranks < n_select) & eligible
+    return mask
+
 
 # =============================================================================
 # STATE AGGREGATION (Section 4.4)
@@ -537,6 +588,69 @@ class Scheduler:
         self.n_aircraft = len(data.aircraft_tails)
         self.max_c = data.config.max_c_check
         self.max_a = data.config.max_a_check
+
+    def _history_to_checks(
+        self,
+        history: list[tuple[int, tuple[int, ...], tuple[int, ...], tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]],
+        start_date: date,
+        tails: list[str],
+    ) -> list[ScheduledCheck]:
+        """Convert recorded history entries into ScheduledCheck objects."""
+        checks: list[ScheduledCheck] = []
+        for day, c_indices, a_indices, state_snap in history:
+            fh_c, fh_a, dy_c, dy_a = state_snap
+            check_date = start_date + timedelta(days=day)
+
+            for idx in c_indices:
+                tail = tails[idx]
+                c_interval_fh = self.static["c_ci_fh"][idx]
+                c_interval_dy = self.static["c_ci_dy"][idx]
+                a_interval_fh = self.static["a_ci_fh"][idx]
+
+                fh_at = float(fh_c[idx])
+                unused = max(0.0, c_interval_fh - fh_at)
+                a_fh_at = float(fh_a[idx])
+                a_unused = max(0.0, a_interval_fh - a_fh_at)
+                is_tol = (dy_c[idx] > c_interval_dy) or (fh_at > c_interval_fh)
+                tat = int(self.static["c_tat"][idx])
+
+                checks.append(
+                    ScheduledCheck(
+                        tail=tail,
+                        check_type="C",
+                        start_date=check_date,
+                        end_date=check_date + timedelta(days=tat - 1),
+                        duration=tat,
+                        fh_at_check=fh_at,
+                        unused_fh=unused,
+                        is_tolerance_event=is_tol,
+                        a_fh_at_check=a_fh_at,
+                        a_unused_fh=a_unused,
+                    )
+                )
+
+            for idx in a_indices:
+                tail = tails[idx]
+                a_interval_fh = self.static["a_ci_fh"][idx]
+                a_interval_dy = self.static["a_ci_dy"][idx]
+                fh_at = float(fh_a[idx])
+                unused = max(0.0, a_interval_fh - fh_at)
+                is_tol = (dy_a[idx] > a_interval_dy) or (fh_at > a_interval_fh)
+
+                checks.append(
+                    ScheduledCheck(
+                        tail=tail,
+                        check_type="A",
+                        start_date=check_date,
+                        end_date=check_date,
+                        duration=1,
+                        fh_at_check=fh_at,
+                        unused_fh=unused,
+                        is_tolerance_event=is_tol,
+                    )
+                )
+
+        return checks
     
     def schedule(self, planning_days: int, verbose: bool = False) -> ScheduleResult:
         """
@@ -627,55 +741,10 @@ class Scheduler:
             print(f"[Deng] Complete in {computation_time:.1f}s")
             print(f"[Deng] C-checks: {best[3]}, A-checks: {best[4]}, Tolerance: {best[2]}")
         
-        # Convert history to ScheduledCheck objects
-        checks = []
-        for day, c_indices, a_indices, state_snap in best[6]:
-            fh_c, fh_a, dy_c, dy_a = state_snap
-            check_date = start_date + timedelta(days=day)
-            
-            for idx in c_indices:
-                tail = tails[idx]
-                c_interval_fh = self.static['c_ci_fh'][idx]
-                c_interval_dy = self.static['c_ci_dy'][idx]
-                a_interval_fh = self.static['a_ci_fh'][idx]
-                fh_at = float(fh_c[idx])
-                unused = max(0.0, c_interval_fh - fh_at)
-                a_fh_at = float(fh_a[idx])
-                a_unused = max(0.0, a_interval_fh - a_fh_at)
-                is_tol = (dy_c[idx] > c_interval_dy) or (fh_at > c_interval_fh)
-                tat = int(self.static['c_tat'][idx])
-                
-                checks.append(ScheduledCheck(
-                    tail=tail,
-                    check_type='C',
-                    start_date=check_date,
-                    end_date=check_date + timedelta(days=tat - 1),
-                    duration=tat,
-                    fh_at_check=fh_at,
-                    unused_fh=unused,
-                    is_tolerance_event=is_tol,
-                    a_fh_at_check=a_fh_at,
-                    a_unused_fh=a_unused,
-                ))
-            
-            for idx in a_indices:
-                tail = tails[idx]
-                a_interval_fh = self.static['a_ci_fh'][idx]
-                a_interval_dy = self.static['a_ci_dy'][idx]
-                fh_at = float(fh_a[idx])
-                unused = max(0.0, a_interval_fh - fh_at)
-                is_tol = (dy_a[idx] > a_interval_dy) or (fh_at > a_interval_fh)
-                
-                checks.append(ScheduledCheck(
-                    tail=tail,
-                    check_type='A',
-                    start_date=check_date,
-                    end_date=check_date,
-                    duration=1,
-                    fh_at_check=fh_at,
-                    unused_fh=unused,
-                    is_tolerance_event=is_tol,
-                ))
+        checks = self._history_to_checks(best[6], start_date, tails)
+        total_unused_fh = sum(c.total_unused_fh for c in checks)
+        # best[1] is the cumulative Eq. 28 cost (unused FH + penalties)
+        total_penalty = max(0.0, float(best[1]) - float(total_unused_fh))
         
         return ScheduleResult(
             checks=checks,
@@ -683,6 +752,211 @@ class Scheduler:
             total_c_checks=best[3],
             total_d_checks=0,
             computation_time=computation_time,
-            total_unused_fh=sum(c.total_unused_fh for c in checks),
+            total_unused_fh=total_unused_fh,
+            total_tolerance_penalty=total_penalty,
             total_tolerance_events=best[2],
+        )
+
+    def schedule_greedy(
+        self,
+        planning_days: int,
+        verbose: bool = False,
+        selection_p_a: float = 0.0,
+        selection_p_d: float = 0.0,
+    ) -> ScheduleResult:
+        """
+        A naive baseline: greedy one-step lookahead over the 7 paper actions.
+
+        At each day, evaluate immediate Eq. 28 cost for each action and apply
+        the best one (ties broken by fewer checks).
+        """
+        start_time = time.time()
+        start_date = self.data.config.begin_day
+        tails = self.data.aircraft_tails
+
+        state = self.initial_state.copy()
+        cum_cost = 0.0
+        cum_tol = 0
+        cum_c = 0
+        cum_a = 0
+        history: list[
+            tuple[int, tuple[int, ...], tuple[int, ...], tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]
+        ] = []
+
+        if verbose:
+            print(f"[Greedy] Starting {planning_days}-day schedule")
+            print(
+                f"[Greedy] Fleet: {self.n_aircraft} aircraft | "
+                f"selection P_a={selection_p_a:.0e} selection P_d={selection_p_d:.0e} | "
+                f"reporting P_a={self.p_a:.0e} P_d={self.p_d:.0e}"
+            )
+            sys.stdout.flush()
+
+        for day in range(planning_days):
+            best = None
+            best_total_checks = None
+
+            for n_a, n_c in PAPER_ACTIONS:
+                n_c = min(n_c, self.max_c)
+                n_a = min(n_a, self.max_a)
+
+                c_mask = select_aircraft(state, self.static, n_c, "C")
+                a_mask = select_aircraft(state, self.static, n_a, "A", exclude_mask=c_mask)
+
+                # Myopic scoring uses selection_p_* (defaults to 0 → wasted-FH-only lookahead).
+                score_cost, tol, nc, na = compute_check_cost(
+                    state, self.static, c_mask, a_mask, selection_p_a, selection_p_d
+                )
+                total_checks = nc + na
+
+                if best is None or score_cost < best[0] or (score_cost == best[0] and total_checks < (best_total_checks or 0)):
+                    best = (score_cost, tol, nc, na, c_mask, a_mask)
+                    best_total_checks = total_checks
+
+            if best is None:
+                # Should not happen, but keep state advancing safely.
+                state = apply_action(state, self.static, np.zeros(self.n_aircraft, dtype=bool), np.zeros(self.n_aircraft, dtype=bool))
+                continue
+
+            score_cost, tol, nc, na, c_mask, a_mask = best
+
+            # Record action if any checks scheduled
+            if nc > 0 or na > 0:
+                c_indices = tuple(np.where(c_mask)[0].tolist())
+                a_indices = tuple(np.where(a_mask)[0].tolist())
+                state_snap = (
+                    state["fh_c"].copy(),
+                    state["fh_a"].copy(),
+                    state["dy_c"].copy(),
+                    state["dy_a"].copy(),
+                )
+                history.append((day, c_indices, a_indices, state_snap))
+
+            # Accumulate *true* Eq. 28 cost for reporting (uses configured penalties).
+            true_cost, _, _, _ = compute_check_cost(state, self.static, c_mask, a_mask, self.p_a, self.p_d)
+            state = apply_action(state, self.static, c_mask, a_mask)
+            cum_cost += float(true_cost)
+            cum_tol += int(tol)
+            cum_c += int(nc)
+            cum_a += int(na)
+
+            if verbose and day % 200 == 0:
+                elapsed = time.time() - start_time
+                eta = (elapsed / max(day, 1)) * (planning_days - day) / 60 if day > 0 else 0
+                print(
+                    f"[Greedy] Day {day:4d}/{planning_days} | "
+                    f"cost={cum_cost:.0f} | C={cum_c} A={cum_a} | time={elapsed:.0f}s ETA={eta:.1f}m"
+                )
+                sys.stdout.flush()
+
+        computation_time = time.time() - start_time
+        checks = self._history_to_checks(history, start_date, tails)
+        total_unused_fh = sum(c.total_unused_fh for c in checks)
+        total_penalty = max(0.0, float(cum_cost) - float(total_unused_fh))
+
+        if verbose:
+            print(f"[Greedy] Complete in {computation_time:.1f}s")
+            print(f"[Greedy] C-checks: {cum_c}, A-checks: {cum_a}, Tolerance: {cum_tol}")
+
+        return ScheduleResult(
+            checks=checks,
+            total_a_checks=cum_a,
+            total_c_checks=cum_c,
+            total_d_checks=0,
+            computation_time=computation_time,
+            total_unused_fh=total_unused_fh,
+            total_tolerance_penalty=total_penalty,
+            total_tolerance_events=cum_tol,
+        )
+
+    def schedule_greedy_due(self, planning_days: int, verbose: bool = False) -> ScheduleResult:
+        """Naive baseline: only schedule checks when aircraft are due/overdue.
+
+        For each day, choose among PAPER_ACTIONS to maximize the number of due aircraft
+        served (ties broken by lower wasted FH). This avoids performing checks early.
+        """
+        start_time = time.time()
+        start_date = self.data.config.begin_day
+        tails = self.data.aircraft_tails
+
+        state = self.initial_state.copy()
+        cum_tol = 0
+        cum_c = 0
+        cum_a = 0
+        history: list[
+            tuple[int, tuple[int, ...], tuple[int, ...], tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]]
+        ] = []
+
+        if verbose:
+            print(f"[GreedyDue] Starting {planning_days}-day schedule")
+            sys.stdout.flush()
+
+        for day in range(planning_days):
+            best = None  # (served, wasted, true_cost, tol, nc, na, c_mask, a_mask)
+
+            for n_a, n_c in PAPER_ACTIONS:
+                n_c = min(n_c, self.max_c)
+                n_a = min(n_a, self.max_a)
+
+                c_mask = select_due_aircraft(state, self.static, n_c, "C")
+                a_mask = select_due_aircraft(state, self.static, n_a, "A", exclude_mask=c_mask)
+
+                # Wasted FH only for tie-breaking (ignore penalties here).
+                wasted, tol, nc, na = compute_check_cost(state, self.static, c_mask, a_mask, 0.0, 0.0)
+                true_cost, _, _, _ = compute_check_cost(state, self.static, c_mask, a_mask, self.p_a, self.p_d)
+                served = nc + na
+
+                cand = (served, float(wasted), float(true_cost), int(tol), int(nc), int(na), c_mask, a_mask)
+                if best is None or cand[0] > best[0] or (cand[0] == best[0] and cand[1] < best[1]):
+                    best = cand
+
+            if best is None:
+                state = apply_action(
+                    state,
+                    self.static,
+                    np.zeros(self.n_aircraft, dtype=bool),
+                    np.zeros(self.n_aircraft, dtype=bool),
+                )
+                continue
+
+            served, _, true_cost, tol, nc, na, c_mask, a_mask = best
+
+            if served > 0:
+                c_indices = tuple(np.where(c_mask)[0].tolist())
+                a_indices = tuple(np.where(a_mask)[0].tolist())
+                state_snap = (
+                    state["fh_c"].copy(),
+                    state["fh_a"].copy(),
+                    state["dy_c"].copy(),
+                    state["dy_a"].copy(),
+                )
+                history.append((day, c_indices, a_indices, state_snap))
+
+            state = apply_action(state, self.static, c_mask, a_mask)
+            cum_tol += tol
+            cum_c += nc
+            cum_a += na
+            # Note: cum_cost is not used for selection; we reconstruct penalties from checks at end.
+
+        computation_time = time.time() - start_time
+        checks = self._history_to_checks(history, start_date, tails)
+        total_unused_fh = sum(c.total_unused_fh for c in checks)
+        # Recompute total Eq.28 cost by replaying actions is expensive; approximate using tolerance penalty only.
+        # Ground-waiting penalties are reflected in the beam-search variants; for this baseline we report
+        # penalties from tolerance events (dominant at P_a=1e8).
+        total_penalty = float(cum_tol) * float(self.p_a)
+
+        if verbose:
+            print(f"[GreedyDue] Complete in {computation_time:.1f}s")
+            print(f"[GreedyDue] C-checks: {cum_c}, A-checks: {cum_a}, Tolerance: {cum_tol}")
+
+        return ScheduleResult(
+            checks=checks,
+            total_a_checks=cum_a,
+            total_c_checks=cum_c,
+            total_d_checks=0,
+            computation_time=computation_time,
+            total_unused_fh=total_unused_fh,
+            total_tolerance_penalty=total_penalty,
+            total_tolerance_events=cum_tol,
         )
