@@ -1,210 +1,79 @@
 # Aircraft Maintenance Check Scheduling
 
-Implementation of the optimization algorithm from:
+Implementation of the forward beam search algorithm from Deng, Santos & Curran (2020), with practical adaptations for tractability.
 
-> Deng, Q., Santos, B.F., Curran, R. (2020). *A practical dynamic programming based methodology for aircraft maintenance check scheduling optimization*. European Journal of Operational Research, 281(2), 256-273.
+> Deng, Q., Santos, B.F., Curran, R. (2020). A practical dynamic programming based methodology for aircraft maintenance check scheduling optimization. *European Journal of Operational Research*, 281(2), 256-273.
 
-The implementation follows the paper's forward beam search methodology with practical engineering adaptations for tractability (simplified dominance pruning, approximate workability checking).
+## Problem
 
----
+Airlines schedule A-checks (~750 FH, 1 day) and C-checks (~7500 FH, 10-30 days) for their fleet. Each aircraft tracks three counters since its last check: calendar days (DY), flight hours (FH), and flight cycles (FC). A check is due when any counter exceeds its interval.
 
-## Problem Setting
-
-Airlines must schedule periodic maintenance checks for their fleet:
-- **A-checks**: Light maintenance every ~750 flight hours / 120 days
-- **C-checks**: Heavy maintenance every ~7,500 flight hours / 730 days
-
-Each aircraft has three utilization counters that accumulate since its last check:
-- **DY** (calendar days)
-- **FH** (flight hours)
-- **FC** (flight cycles)
-
-A check is **due** when *any* counter exceeds its interval. Regulatory bodies allow a **tolerance buffer** beyond the interval, but using it requires approval and incurs a penalty.
-
----
-
-## Problem Formulation
-
-The paper formulates this as a **Markov Decision Process (MDP)**:
-
-### State Space
-
-For a fleet of N aircraft, the state at time t includes:
-- For each aircraft i: counters (DY, FH, FC) since last A-check and C-check
-- Current intervals (which decrease if tolerance was used previously)
-- Grounding status (days remaining in maintenance)
-
-### Action Space (Table 2)
-
-Each day, the dispatcher chooses how many checks to perform:
-
-| Action | n_a (A-checks) | n_c (C-checks) |
-|--------|----------------|----------------|
-| 0 | 0 | 0 |
-| 1 | 1 | 0 |
-| 2 | 0 | 1 |
-| 3 | 1 | 1 |
-| 4 | 0 | 2 |
-| 5 | 1 | 2 |
-| 6 | 2 | 0 |
-
-Aircraft are assigned to checks using **earliest deadline first** priority (Equations 36-40).
-
-### Transition Dynamics
-
-Given action (n_a, n_c):
-1. Select n_c most urgent aircraft for C-checks, n_a for A-checks
-2. Reset counters for checked aircraft; set grounding time
-3. Advance all non-grounded aircraft by one day (DY += 1, FH += daily_fh, FC += daily_fc)
-
-### Cost Function (Equation 28)
+The objective (Equation 28) minimizes unused flight hours plus penalties for tolerance usage and ground-waiting:
 
 ```
-C_t = Σ[χ·(I_FH - FH) + (1-χ)·P_a·θ + P_d·η]
+C_t = Σ[χ·(I_FH - FH) + P_a·θ + P_d·η]
 ```
 
-Where:
-- **χ = 1** if a check is performed, **0** otherwise
-- **I_FH - FH**: unused flight hours (scheduling a check early wastes remaining interval)
-- **P_a · θ**: tolerance penalty (θ=1 if check uses regulatory tolerance)
-- **P_d · η**: ground-waiting penalty (η=1 if aircraft is overdue but not in maintenance)
+## Algorithm
 
-**Goal**: Minimize total cost over the planning horizon (typically 4 years).
-
-### Constraints
-
-- **Hangar capacity**: Max concurrent C-checks (typically 3) and A-checks (typically 1)
-- **Peak seasons**: No C-checks during high-demand periods
-- **Minimum interval**: Days between C-check starts (prevents bunching)
-
----
-
-## Solution Method: Forward Induction
-
-### Why Not Standard DP?
-
-The state space is enormous: with 45 aircraft, each having 6+ continuous state variables, exact dynamic programming is intractable. The paper calls their method "dynamic programming" but it's actually **forward beam search** with state aggregation.
-
-### The Algorithm
+The paper's "practical DP" is forward beam search with state aggregation. Each day, expand all 7 actions from Table 2, group successor states by utilization histogram, keep only the lowest-cost state per histogram bucket, and advance.
 
 ```
-1. Initialize frontier = {initial_fleet_state}
-2. For each day t = 1 to T:
-   a. Expand: For each state in frontier, apply all 7 actions
-   b. Aggregate: Group states by utilization histogram
-   c. Prune: Keep only lowest-cost state per histogram group (Thrifty)
-   d. Beam limit: Keep top-k states by cumulative cost
-3. Return best final state
-```
-
-### Key Differences from Bellman DP
-
-| Bellman DP | Forward Induction (this paper) |
-|------------|--------------------------------|
-| Works backward from T to 0 | Works forward from 0 to T |
-| Computes value function V(s) | Tracks cumulative cost |
-| Exact (for finite MDP) | Approximate (beam search) |
-| Needs full state enumeration | Uses state aggregation |
-
-### State Aggregation (Section 4.4)
-
-To make the problem tractable, states are grouped by **utilization histograms**:
-- Discretize each aircraft's FH into bins of size u (e.g., u=100)
-- Count how many aircraft fall in each bin
-- States with identical histograms are considered equivalent
-
-This reduces the state space from continuous to a manageable discrete set.
-
-### Thrifty Pruning (Section 4.4.1)
-
-For states with the same histogram, only keep the one with **lowest cumulative cost**. This is a dominance rule: if two paths lead to the same aggregated state, prefer the cheaper one.
-
----
-
-## Installation
-
-```bash
-python -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-
-# Download data from: https://doi.org/10.4121/uuid:1630e6fd-9574-46e8-899e-83037c17bcef
+aircraft_scheduler/
+├── scheduler.py       # Beam search implementation
+├── core.py            # State, dynamics, cost functions
+├── data_loader.py     # Excel parser
+└── visualization.py   # Plotting
 ```
 
 ## Usage
 
-```python
-from aircraft_scheduler import Scheduler, load_maintenance_data
-
-data = load_maintenance_data("Sep 25 2017 (Case Study 2018-2021).xlsx")
-scheduler = Scheduler(data, beam_width=200)
-result = scheduler.schedule(4 * 365, verbose=True)
-
-print(f"C-checks: {result['n_c_checks']}")
-print(f"A-checks: {result['n_a_checks']}")
-print(f"Tolerance events: {result['tolerance_events']}")
-```
-
-CLI:
 ```bash
+python -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
 python main.py --years 4 --beam-width 200
 ```
 
----
+Data: https://doi.org/10.4121/uuid:1630e6fd-9574-46e8-899e-83037c17bcef
 
 ## Results
 
-**4-Year Benchmark** (45 aircraft, beam_width=200):
+4-year benchmark (45 aircraft, beam_width=200):
 
-| Metric | This Implementation | Paper Table 3 | Paper Table 4 |
-|--------|---------------------|---------------|---------------|
-| C-checks | 94 | 82–89 | 85–88 |
-| A-checks | 839 | 758–818 | 877–881 |
-| Tolerance events | 5 | 1–17 | 0–4 |
-| Computation time | **2.9 min** | — | ~8.5 min |
+| Metric | Implementation | Paper |
+|--------|----------------|-------|
+| C-checks | 94 | 82-89 |
+| A-checks | 839 | 758-881 |
+| Tolerance events | 5 | 0-17 |
+| Time | 2.9 min | ~8.5 min |
 
-**Analysis:**
-- ✅ **C-checks match**: 94 vs paper's 82–89 range
-- ✅ **A-checks match**: 839 falls within paper's 758–881 range
-- ✅ **Minimal tolerance**: Only 5 events over 4 years
-- ✅ **Faster**: ~3x speedup vs paper's reported times
+Efficiency: A-check 95.8%, C-check 93.2%.
 
-**Efficiency:** A-check utilization 95.8%, C-check utilization 93.2%
+Adding a future-risk heuristic reduces tolerance events from 5 to 2 and cost by 75%:
 
-**1-Year Results:** C=25, A=202, Tolerance=1, Time=42s
-
----
-
-## Extensions: Beam Search Variants
-
-Recognizing the algorithm as **beam search** enables improvements from the AI/OR literature:
-
-| Variant | Tolerance Events | Cost Reduction |
-|---------|------------------|----------------|
-| Base Deng (reproduction) | 5 | — |
-| + Future heuristic (λ=100) | 2 | −75% |
-
-**Key insight:** Best-first expansion with a lookahead heuristic ("time to next grounding risk") significantly reduces both tolerance events and total cost while maintaining zero groundings.
-
-Run experiments:
 ```bash
 python run_variant_experiments.py --variant all --years 4
 ```
 
----
+## Implementation Notes
 
-## Project Structure
+The paper's algorithm requires several expensive operations that we approximate for tractability.
 
-```
-aircraft_scheduler/
-├── scheduler.py       # Main scheduler implementation
-├── core.py            # State, dynamics, constraints, cost functions
-├── data_loader.py     # Excel data parser
-└── visualization.py   # Plotting utilities
-```
+**State aggregation.** Beam search generates many successor states each day. To bound memory, the paper groups "similar" states and keeps only one representative per group. The paper's grouping criterion is mean fleet utilization: for each check type, compute ū = (1/N) Σ (FH_i / I_FH), round to the nearest 0.1, and use the pair (ū_A, ū_C) as the group key. With 11 possible values per check type, this yields at most 121 groups.
 
----
+The problem is that mean utilization discards distributional information. Consider two fleets of 10 aircraft. Fleet A has all aircraft at 50% C-check utilization. Fleet B has 5 aircraft at 0% and 5 at 100%. Both have mean 50%, so the paper treats them as equivalent. But Fleet B has 5 aircraft about to exceed their interval, while Fleet A has none. These fleets need different scheduling decisions.
 
-## References
+We instead group by histogram: discretize each aircraft's utilization into bins, count how many aircraft fall in each bin, and use this count vector as the group key. Fleet A has histogram {50%: 10}, Fleet B has histogram {0%: 5, 100%: 5}. These are different keys, so the states remain separate. The tradeoff is more groups (larger state space), but we preserve information about fleet heterogeneity that affects scheduling.
+
+**Dominance pruning.** When multiple states fall in the same histogram bucket, we must decide which to keep. The paper's "Thrifty" rule compares states bin-by-bin: state A dominates B if A has higher utilization in every bin and lower cost. This requires O(n²) comparisons per bucket. We simplify to keeping only the lowest-cost state per bucket, which is faster but may discard states that would lead to better solutions.
+
+**Workability check.** A state is "workable" if some policy can reach the horizon without grounding any aircraft. The paper defines this existentially: does any feasible action sequence exist? Checking this exactly is expensive. We instead simulate a single greedy policy (always check the most urgent aircraft) for a configurable lookahead horizon. If greedy fails, we reject the state. This is conservative: we may reject workable states, but we never accept unworkable ones.
+
+**A-check resolution.** A-checks have a 750 FH interval versus 7500 FH for C-checks. Using the same discretization step u for both loses detail for A-checks. We use u/2 for A-check histograms to preserve resolution at the shorter interval.
+
+**Penalty values.** The paper distinguishes P_a (tolerance penalty) from P_d (ground-waiting penalty) conceptually, but both are set to 10^8 in the case study. We use the same value for both.
+
+## Reference
 
 ```bibtex
 @article{deng2020practical,
