@@ -1,8 +1,10 @@
 # Aircraft Maintenance Check Scheduling
 
-Faithful implementation of the optimization algorithm from:
+Implementation of the optimization algorithm from:
 
 > Deng, Q., Santos, B.F., Curran, R. (2020). *A practical dynamic programming based methodology for aircraft maintenance check scheduling optimization*. European Journal of Operational Research, 281(2), 256-273.
+
+The implementation follows the paper's forward beam search methodology with practical engineering adaptations for tractability (simplified dominance pruning, approximate workability checking).
 
 ---
 
