@@ -151,7 +151,7 @@ python main.py --years 4 --beam-width 200
 
 ## Results
 
-**4-Year Benchmark** (45 aircraft, beam_width=200):0
+**4-Year Benchmark** (45 aircraft, beam_width=200):
 
 | Metric | This Implementation | Paper Table 3 | Paper Table 4 |
 |--------|---------------------|---------------|---------------|
@@ -166,7 +166,27 @@ python main.py --years 4 --beam-width 200
 - ✅ **Minimal tolerance**: Only 5 events over 4 years
 - ✅ **Faster**: ~3x speedup vs paper's reported times
 
+**Efficiency:** A-check utilization 95.8%, C-check utilization 93.2%
+
 **1-Year Results:** C=25, A=202, Tolerance=1, Time=42s
+
+---
+
+## Extensions: Beam Search Variants
+
+Recognizing the algorithm as **beam search** enables improvements from the AI/OR literature:
+
+| Variant | Tolerance Events | Cost Reduction |
+|---------|------------------|----------------|
+| Base Deng (reproduction) | 5 | — |
+| + Future heuristic (λ=100) | 2 | −75% |
+
+**Key insight:** Best-first expansion with a lookahead heuristic ("time to next grounding risk") significantly reduces both tolerance events and total cost while maintaining zero groundings.
+
+Run experiments:
+```bash
+python run_variant_experiments.py --variant all --years 4
+```
 
 ---
 
