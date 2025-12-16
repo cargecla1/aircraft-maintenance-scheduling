@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Aircraft Maintenance Scheduling - Thrifty DP (Reproduction)</title>
+<link href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" rel="stylesheet"/>
+<script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<script defer="" src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/contrib/auto-render.min.js"></script>
+<style>
+    :root {
+      --mila-pink: #F694BB;
+      --mila-purple: #662E7D;
+      --mila-cyan: #59B9D2;
+      --mila-green: #3FAE82;
+      --mila-yellow: #F9B40D;
+      --mila-orange: #F05629;
+      --mila-red: #D41647;
+      --mila-dark: #363A44;
+      --mila-pink-light: #F2C1D3;
+      --mila-purple-light: #CEB3D3;
+      --mila-cyan-light: #A9DAE9;
+      --mila-green-light: #B9DBC1;
+      --mila-yellow-light: #F4DA92;
+      --mila-orange-light: #F3B692;
+      --mila-red-light: #EC9191;
+      --mila-silver: #A0AAB7;
+      --bg-teal: #ECF6F6;
+      --bg-cream: #F4F5F1;
+      --bg-gray: #DEDEDE;
+      --white: #ffffff;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Work Sans', sans-serif;
+      background: var(--bg-cream);
+      color: var(--mila-dark);
+      line-height: 1.4;
+    }
+
+    .poster {
+      width: 100%;
+      max-width: 1800px;
+      margin: 0 auto;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    /* Header */
+    header {
+      background: var(--mila-purple);
+      color: var(--white);
+      border-radius: 14px;
+      padding: 16px 22px;
+      position: relative;
+      overflow: hidden;
+      box-shadow: 0 8px 26px rgba(54, 58, 68, 0.14);
+    }
+
+    header::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.22;
+      background:
+        linear-gradient(115deg, rgba(246,148,187,0.55) 0 18%, transparent 18% 100%),
+        linear-gradient(35deg, rgba(89,185,210,0.55) 0 16%, transparent 16% 100%),
+        linear-gradient(160deg, rgba(63,174,130,0.55) 0 14%, transparent 14% 100%),
+        linear-gradient(70deg, rgba(249,180,13,0.55) 0 12%, transparent 12% 100%),
+        linear-gradient(210deg, rgba(240,86,41,0.55) 0 10%, transparent 10% 100%);
+      mix-blend-mode: screen;
+    }
+
+    .header-content {
+      display: flex;
+      align-items: flex-start;
+      gap: 24px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .brand-block { flex-shrink: 0; min-width: 170px; padding-top: 2px; }
+    .brand-wordmark { font-weight: 800; font-size: 1.55em; color: var(--white); line-height: 1; }
+    .brand-sub { margin-top: 6px; font-size: 0.78em; color: rgba(255,255,255,0.82); font-weight: 500; }
+    .brand-author { margin-top: 10px; font-size: 0.82em; color: var(--white); font-weight: 600; }
+
+    .header-text { flex: 1; }
+    h1 { font-size: 2.4em; font-weight: 700; color: var(--white); line-height: 1.1; margin-bottom: 4px; }
+    .subtitle { font-size: 0.9em; color: rgba(255,255,255,0.82); margin-bottom: 6px; }
+
+    .key-finding {
+      background: rgba(255,255,255,0.15);
+      border-left: 3px solid var(--mila-green);
+      padding: 6px 12px;
+      border-radius: 0 10px 10px 0;
+      font-size: 0.85em;
+      color: var(--white);
+      display: inline-block;
+    }
+    .key-finding strong { color: var(--mila-green-light); }
+
+    /* Grid */
+    .content-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      flex: 1;
+    }
+
+    /* Cards */
+    .card {
+      background: var(--white);
+      border-radius: 12px;
+      padding: 10px 12px;
+      border: 1px solid rgba(160, 170, 183, 0.55);
+      box-shadow: 0 10px 18px rgba(54, 58, 68, 0.06);
+      font-size: 0.92em;
+    }
+
+    .card.span-2 { grid-column: span 2; }
+    .card.span-3 { grid-column: span 3; }
+    .card.span-4 { grid-column: span 4; }
+
+    .section-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.72em;
+      letter-spacing: 0.08em;
+      font-weight: 700;
+      text-transform: uppercase;
+      background: var(--bg-cream);
+    }
+    .section-kicker::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent, var(--mila-purple));
+    }
+
+    .card h2 {
+      font-size: 1.4em;
+      font-weight: 800;
+      color: var(--mila-dark);
+      margin-bottom: 6px;
+      padding-bottom: 4px;
+      border-bottom: 2px solid var(--accent-light, var(--mila-cyan-light));
+    }
+
+    .card p { margin: 0 0 8px; line-height: 1.45; }
+    .card ul { list-style: none; padding-left: 0; margin: 8px 0; }
+    .card li { padding: 3px 0 3px 16px; position: relative; }
+    .card li::before {
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 10px;
+      width: 6px;
+      height: 6px;
+      background: var(--accent, var(--mila-cyan));
+      border-radius: 50%;
+    }
+
+    .accent-purple { --accent: var(--mila-purple); --accent-light: var(--mila-purple-light); }
+    .accent-cyan { --accent: var(--mila-cyan); --accent-light: var(--mila-cyan-light); }
+    .accent-green { --accent: var(--mila-green); --accent-light: var(--mila-green-light); }
+    .accent-yellow { --accent: var(--mila-yellow); --accent-light: var(--mila-yellow-light); }
+    .accent-orange { --accent: var(--mila-orange); --accent-light: var(--mila-orange-light); }
+
+    /* Math blocks */
+    .math-block {
+      background: var(--bg-teal);
+      padding: 10px 14px;
+      border-radius: 6px;
+      margin: 8px 0;
+      border-left: 3px solid var(--mila-purple);
+      overflow-x: auto;
+    }
+    .math-block .katex { font-size: 0.9em; }
+    .math-label {
+      font-size: 0.65em;
+      color: var(--mila-purple);
+      font-weight: 600;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    /* Check types */
+    .check-types { display: flex; gap: 8px; margin: 10px 0; flex-wrap: wrap; }
+    .check-type {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 0.85em;
+    }
+    .check-type.a-check { background: var(--mila-green-light); }
+    .check-type.c-check { background: var(--mila-cyan-light); }
+    .check-type .type-label { font-weight: 700; }
+    .check-type.a-check .type-label { color: var(--mila-green); }
+    .check-type.c-check .type-label { color: var(--mila-cyan); }
+
+    /* Highlight boxes */
+    .highlight-box {
+      background: linear-gradient(135deg, var(--mila-yellow-light) 0%, var(--white) 100%);
+      border-left: 3px solid var(--mila-yellow);
+      padding: 10px 12px;
+      border-radius: 0 8px 8px 0;
+      margin: 10px 0;
+      font-size: 0.9em;
+    }
+    .highlight-box.purple {
+      background: linear-gradient(135deg, var(--mila-purple-light) 0%, var(--white) 100%);
+      border-left-color: var(--mila-purple);
+    }
+    .highlight-box.green {
+      background: linear-gradient(135deg, var(--mila-green-light) 0%, var(--white) 100%);
+      border-left-color: var(--mila-green);
+    }
+    .highlight-box.cyan {
+      background: linear-gradient(135deg, var(--mila-cyan-light) 0%, var(--white) 100%);
+      border-left-color: var(--mila-cyan);
+    }
+
+    /* SVG diagrams */
+    .diagram-container {
+      margin: 12px 0;
+      background: linear-gradient(135deg, var(--bg-teal) 0%, var(--bg-cream) 100%);
+      border-radius: 10px;
+      padding: 12px;
+      border: 1px solid var(--bg-gray);
+    }
+    .diagram-container svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .diagram-title {
+      font-size: 0.75em;
+      font-weight: 700;
+      color: var(--mila-purple);
+      margin-bottom: 8px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .diagram-caption {
+      font-size: 0.8em;
+      color: var(--mila-silver);
+      margin-top: 8px;
+      line-height: 1.3;
+    }
+
+    /* Results panels */
+    .results-meta {
+      background: linear-gradient(135deg, var(--bg-cream) 0%, var(--white) 70%);
+      border-color: rgba(89,185,210,0.55);
+    }
+    .results-meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      grid-template-areas:
+        "variants variants variants variants"
+        "efficiency efficiency capacity capacity";
+      gap: 8px;
+      margin-top: 6px;
+      align-items: stretch;
+    }
+    .results-panel {
+      background: var(--white);
+      border: 1px solid rgba(160, 170, 183, 0.55);
+      border-radius: 12px;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+    }
+    .results-panel.span-2 { grid-column: span 2; }
+    .results-panel.span-4 { grid-column: span 4; }
+    .results-panel.efficiency { grid-area: efficiency; }
+    .results-panel.capacity { grid-area: capacity; }
+    .results-panel.variants { grid-area: variants; }
+    .results-panel-title {
+      font-weight: 700;
+      font-size: 1em;
+      margin-bottom: 8px;
+      color: var(--mila-dark);
+    }
+    .panel-caption {
+      font-size: 0.8em;
+      color: var(--mila-silver);
+      margin-top: 8px;
+      line-height: 1.3;
+    }
+
+    /* Graph containers */
+    .graph-container {
+      margin: 8px 0;
+      background: var(--white);
+      border-radius: 6px;
+      border: 1px solid var(--bg-gray);
+      overflow: hidden;
+      padding: 6px;
+      flex: 1;
+      display: flex;
+      align-items: stretch;
+    }
+    .graph-container img {
+      width: 100%;
+      height: 100%;
+      display: block;
+      object-fit: contain;
+    }
+
+    /* Results sizing: encourage consistent plot heights */
+    .results-panel.efficiency .graph-container,
+    .results-panel.capacity .graph-container {
+      min-height: 0;
+    }
+    .results-panel.variants .graph-container {
+      min-height: 0;
+    }
+
+    /* Metrics */
+    .metrics-row {
+      display: flex;
+      gap: 10px;
+      margin: 10px 0;
+      flex-wrap: wrap;
+    }
+    .metric {
+      flex: 1;
+      min-width: 100px;
+      text-align: center;
+      padding: 10px 8px;
+      background: linear-gradient(135deg, var(--bg-teal) 0%, var(--white) 100%);
+      border-radius: 8px;
+      border: 1px solid var(--bg-gray);
+    }
+    .metric.highlight {
+      background: linear-gradient(135deg, var(--mila-green-light) 0%, var(--white) 100%);
+      border-color: var(--mila-green);
+    }
+    .metric-value {
+      font-size: 1.4em;
+      font-weight: 700;
+      color: var(--mila-purple);
+    }
+    .metric.highlight .metric-value { color: var(--mila-green); }
+    .metric-label {
+      font-size: 0.7em;
+      color: var(--mila-silver);
+      margin-top: 2px;
+      font-weight: 500;
+    }
+
+    /* Two column layout */
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    /* Footer */
+    footer {
+      margin-top: 8px;
+      padding: 14px 20px;
+      background: var(--white);
+      border-radius: 14px;
+      border: 1px solid rgba(160, 170, 183, 0.55);
+      box-shadow: 0 1px 8px rgba(54, 58, 68, 0.05);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 0.8em;
+    }
+    .footer-brand { display: flex; align-items: center; gap: 16px; }
+    .footer-brand .logo-text { font-weight: 700; font-size: 1.1em; color: var(--mila-purple); }
+    .footer-brand .tagline { font-size: 0.75em; color: var(--mila-silver); }
+    .footer-ref {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-left: 16px;
+      border-left: 2px solid var(--mila-purple-light);
+      max-width: 520px;
+    }
+    .footer-ref-label { font-size: 0.7em; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mila-silver); font-weight: 700; }
+    .footer-ref-text { font-size: 0.85em; color: var(--mila-dark); font-weight: 500; }
+    .tech-stack { display: flex; gap: 10px; flex-wrap: wrap; }
+    .tech-item {
+      font-size: 0.75em;
+      color: var(--mila-dark);
+      padding: 3px 10px;
+      background: var(--bg-teal);
+      border-radius: 12px;
+    }
+
+    /* Print styles */
+    @media print {
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      html, body { margin: 0; padding: 0; background: var(--bg-cream) !important; }
+      .poster { max-width: none; padding: 10px; margin: 0; page-break-inside: avoid; break-inside: avoid; }
+      .card, .results-meta-grid, header { page-break-inside: avoid; break-inside: avoid; }
+    }
+    @page { size: auto; margin: 0; }
+    @page { size: A0 landscape; margin: 12mm; }
+</style>
+</head>
+<body>
+<div class="poster">
+
+<!-- HEADER -->
+<header>
+  <div class="header-content">
+    <div class="brand-block">
+      <div class="brand-wordmark">Mila</div>
+      <div class="brand-sub">Quebec AI Institute</div>
+      <div class="brand-author">Pierre-Luc Bacon, PLuRL Group</div>
+    </div>
+    <div class="header-text">
+      <h1>Multi-Year Aircraft Fleet Scheduling with Beam Search</h1>
+      <p class="subtitle">Reproduction &amp; Extension of Deng, Santos &amp; Curran (EJOR 2020)</p>
+      <div class="key-finding">
+        Beam search tames the combinatorial explosion. 45 aircraft, 4 years, under 4 minutes — a baseline ready for MCTS and learned heuristics.
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="content-grid">
+
+<!-- ROW 1: Problem + MDP -->
+<div class="card span-2 accent-purple">
+  <div class="section-kicker">1 - Problem</div>
+  <h2>Maintenance Check Scheduling</h2>
+  
+  <p>Aircraft require periodic maintenance. Each plane tracks <strong>3 counters</strong> that increment over time:</p>
+  
+  <div class="counter-legend" style="display:flex; gap:12px; margin:8px 0; flex-wrap:wrap;">
+    <span style="background:#ECF6F6; padding:4px 10px; border-radius:4px; font-size:0.85em;"><strong>DY</strong> = calendar days</span>
+    <span style="background:#ECF6F6; padding:4px 10px; border-radius:4px; font-size:0.85em;"><strong>FH</strong> = flight hours</span>
+    <span style="background:#ECF6F6; padding:4px 10px; border-radius:4px; font-size:0.85em;"><strong>FC</strong> = flight cycles (takeoffs)</span>
+  </div>
+  
+  <p>When <em>any</em> counter hits its regulatory limit, the aircraft <strong>must</strong> undergo maintenance. A check resets all counters to zero.</p>
+  
+  <div class="check-types">
+    <div class="check-type a-check"><span class="type-label">A-check</span> light inspection, ~1 day, limit: 750 FH</div>
+    <div class="check-type c-check"><span class="type-label">C-check</span> heavy overhaul, 10-30 days, limit: 7500 FH</div>
+  </div>
+  
+  <div class="diagram-container" style="margin:10px 0; padding:10px;">
+    <div class="diagram-title">The Scheduling Trade-off</div>
+    <svg viewBox="0 0 500 160" xmlns="http://www.w3.org/2000/svg">
+      <!-- Legend at top, well above the graph -->
+      <g transform="translate(50, 5)">
+        <rect x="0" y="0" width="10" height="10" fill="#B9DBC1"/>
+        <text x="14" y="8" font-size="7" fill="#363A44">Ideal window</text>
+        <rect x="90" y="0" width="10" height="10" fill="#EC9191" fill-opacity="0.5"/>
+        <text x="104" y="8" font-size="7" fill="#363A44">Tolerance zone (needs approval)</text>
+      </g>
+      
+      <!-- Y axis label -->
+      <text x="12" y="75" text-anchor="middle" font-size="8" fill="#A0AAB7" transform="rotate(-90, 12, 75)">Flight Hours</text>
+      
+      <!-- Hard limit line (with tolerance) -->
+      <line x1="40" y1="25" x2="390" y2="25" stroke="#D41647" stroke-width="2"/>
+      <text x="395" y="29" font-size="7" fill="#D41647" font-weight="600">Hard limit: 825 FH</text>
+      <text x="395" y="38" font-size="6" fill="#D41647">(750 + 75 tolerance)</text>
+      
+      <!-- Tolerance zone -->
+      <rect x="40" y="25" width="350" height="18" fill="#EC9191" fill-opacity="0.35"/>
+      
+      <!-- Normal limit line -->
+      <line x1="40" y1="43" x2="390" y2="43" stroke="#F9B40D" stroke-width="2" stroke-dasharray="6,3"/>
+      <text x="395" y="47" font-size="7" fill="#F9B40D" font-weight="600">Normal limit: 750 FH</text>
+      
+      <!-- Optimal zone -->
+      <rect x="40" y="43" width="350" height="22" fill="#B9DBC1" fill-opacity="0.4"/>
+      
+      <!-- Axis -->
+      <line x1="40" y1="115" x2="390" y2="115" stroke="#A0AAB7" stroke-width="1.5"/>
+      <text x="215" y="155" text-anchor="middle" font-size="9" fill="#A0AAB7">Time (days)</text>
+      
+      <!-- Usage line climbing -->
+      <path d="M 40 115 L 110 85 L 165 70" stroke="#662E7D" stroke-width="2.5" fill="none"/>
+      
+      <!-- Early scheduling (bad) -->
+      <g>
+        <circle cx="110" cy="85" r="5" fill="#F9B40D"/>
+        <line x1="110" y1="85" x2="110" y2="115" stroke="#F9B40D" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="110" y="128" text-anchor="middle" font-size="7" fill="#F9B40D" font-weight="600">Too early</text>
+        <!-- Waste bracket -->
+        <path d="M 115 85 L 123 85 L 123 43 L 115 43" stroke="#F9B40D" stroke-width="1" fill="none"/>
+        <text x="130" y="67" font-size="6" fill="#F9B40D">Wasted FH</text>
+      </g>
+      
+      <!-- Optimal scheduling (good) -->
+      <g>
+        <path d="M 165 70 L 215 57" stroke="#662E7D" stroke-width="2.5" fill="none"/>
+        <circle cx="215" cy="57" r="5" fill="#3FAE82"/>
+        <line x1="215" y1="57" x2="215" y2="115" stroke="#3FAE82" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="215" y="128" text-anchor="middle" font-size="7" fill="#3FAE82" font-weight="600">Optimal</text>
+      </g>
+      
+      <!-- Tolerance usage (risky) -->
+      <g>
+        <path d="M 215 57 L 285 37" stroke="#662E7D" stroke-width="2.5" fill="none" stroke-dasharray="4,2" opacity="0.6"/>
+        <circle cx="285" cy="37" r="5" fill="#F05629"/>
+        <line x1="285" y1="37" x2="285" y2="115" stroke="#F05629" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="285" y="128" text-anchor="middle" font-size="7" fill="#F05629" font-weight="600">In tolerance</text>
+      </g>
+      
+      <!-- Too late - grounded -->
+      <g>
+        <path d="M 285 37 L 350 20" stroke="#662E7D" stroke-width="2.5" fill="none" stroke-dasharray="4,2" opacity="0.4"/>
+        <circle cx="350" cy="20" r="5" fill="#D41647"/>
+        <line x1="350" y1="20" x2="350" y2="115" stroke="#D41647" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="350" y="128" text-anchor="middle" font-size="7" fill="#D41647" font-weight="600">Grounded!</text>
+      </g>
+    </svg>
+  </div>
+  
+  <!-- Tolerance explanation -->
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:8px 0;">
+    <div class="highlight-box" style="margin:0; padding:8px 10px;">
+      <strong style="color:#F05629;">Tolerance:</strong> <span style="font-size:0.9em;">A regulatory buffer (e.g., +75 FH for A-checks). Requires approval from aviation authorities. Using it is costly and should be avoided in planning.</span>
+    </div>
+    <div class="highlight-box" style="margin:0; padding:8px 10px; background:linear-gradient(135deg, #EC9191 0%, #fff 100%); border-left-color:#D41647;">
+      <strong style="color:#D41647;">Penalty:</strong> <span style="font-size:0.9em;">If tolerance is used, the extra FH/DY/FC must be <em>deducted</em> from the next interval. Borrow now, pay later.</span>
+    </div>
+  </div>
+  
+  <div class="highlight-box purple" style="margin-bottom:0;">
+    <strong>Combinatorial complexity:</strong> 45 aircraft share limited hangar slots. Scheduling one plane affects when others can go. Combinatorial explosion over a 4-year horizon.
+  </div>
+  
+  <!-- <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
+    <div style="background:#ECF6F6; padding:10px 12px; border-radius:6px; font-size:0.85em;">
+      <strong style="color:#59B9D2;">Hangar capacity:</strong><br/>
+      • 3 C-check slots per day<br/>
+      • 1 A-check slot per day<br/>
+      • Peak seasons: no heavy maintenance
+    </div>
+    <div style="background:#F4F5F1; padding:10px 12px; border-radius:6px; font-size:0.85em;">
+      <strong style="color:#662E7D;">Scale:</strong><br/>
+      • 45 aircraft × 4 years<br/>
+      • ~800 A-checks + ~200 C-checks total<br/>
+      • 7 possible daily actions
+    </div>
+  </div> -->
+</div>
+
+<div class="card span-2 accent-cyan">
+  <div class="section-kicker">2 - Model</div>
+  <h2>MDP Formulation</h2>
+  
+  <p>We model the problem as a <strong>deterministic finite-horizon MDP</strong> with daily time steps over T = 1461 days (4 years).</p>
+  
+  <!-- State and Action definitions side by side -->
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin:10px 0;">
+    <div class="math-block" style="margin:0; padding:10px;">
+      <div class="math-label">State (all N aircraft)</div>
+      $$s_t = \{(DY^A_i, FH^A_i, FC^A_i, DY^C_i, FH^C_i, FC^C_i)\}_{i=1}^{N}$$
+      <div style="font-size:0.8em; color:#A0AAB7; margin-top:4px;">6 counters per aircraft × 45 aircraft = 270 dims</div>
+    </div>
+    <div class="math-block" style="margin:0; padding:10px;">
+      <div class="math-label">Action (how many checks today)</div>
+      $$a_t = (n_A, n_C) \in \{0,1,2\} \times \{0,1,2,3\}$$
+      <div style="font-size:0.8em; color:#A0AAB7; margin-top:4px;">7 valid combinations (Table 2) × priority rule → concrete schedule</div>
+    </div>
+  </div>
+  
+  <!-- Compact transition diagram -->
+  <div class="diagram-container" style="margin:8px 0; padding:10px;">
+    <div class="diagram-title">Worked Example: One Day Step</div>
+    <svg viewBox="0 0 550 110" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowMDP" markerWidth="7" markerHeight="5" refX="7" refY="2.5" orient="auto">
+          <polygon points="0 0, 7 2.5, 0 5" fill="#662E7D"/>
+        </marker>
+      </defs>
+      
+      <!-- State t box -->
+      <g transform="translate(5, 8)">
+        <rect x="0" y="0" width="140" height="85" rx="6" fill="#A9DAE9" stroke="#59B9D2" stroke-width="1.5"/>
+        <text x="70" y="14" text-anchor="middle" font-size="8" fill="#59B9D2" font-weight="700">State sₜ</text>
+        <line x1="8" y1="20" x2="132" y2="20" stroke="#59B9D2" stroke-width="0.5" opacity="0.5"/>
+        
+        <!-- Aircraft 1 - will be checked -->
+        <rect x="6" y="24" width="128" height="28" rx="3" fill="#FFFFFF" fill-opacity="0.78" stroke="#F05629" stroke-width="1"/>
+        <text x="10" y="36" font-size="7" fill="#F05629" font-weight="700">AC1: A(98, 680, 320)</text>
+        <text x="10" y="48" font-size="7" fill="#363A44">     C(450, 5200, 2800)</text>
+        <text x="120" y="42" text-anchor="end" font-size="6" fill="#F05629" font-weight="700">← check</text>
+        
+        <!-- Aircraft 2 - not checked -->
+        <text x="10" y="64" font-size="7" fill="#363A44" font-weight="600">AC2: A(45, 310, 150)</text>
+        <text x="10" y="76" font-size="7" fill="#363A44">     C(200, 2100, 1100)</text>
+      </g>
+      
+      <!-- Arrow + Action -->
+      <g transform="translate(155, 35)">
+        <rect x="0" y="0" width="70" height="40" rx="5" fill="#F4DA92" stroke="#F9B40D" stroke-width="1.5"/>
+        <text x="35" y="15" text-anchor="middle" font-size="8" fill="#F9B40D" font-weight="700">Action</text>
+        <text x="35" y="28" text-anchor="middle" font-size="7" fill="#363A44">(nₐ=1, n꜀=0)</text>
+        <text x="35" y="38" text-anchor="middle" font-size="6" fill="#A0AAB7">1 A-check</text>
+      </g>
+      <line x1="145" y1="50" x2="153" y2="50" stroke="#662E7D" stroke-width="1.5" marker-end="url(#arrowMDP)"/>
+      <line x1="225" y1="50" x2="238" y2="50" stroke="#662E7D" stroke-width="1.5" marker-end="url(#arrowMDP)"/>
+      
+      <!-- Transition logic -->
+      <g transform="translate(240, 20)">
+        <rect x="0" y="0" width="90" height="70" rx="5" fill="#F4F5F1" stroke="#A0AAB7" stroke-width="1" stroke-dasharray="3,2"/>
+        <text x="45" y="12" text-anchor="middle" font-size="7" fill="#662E7D" font-weight="600">Transition</text>
+        <text x="8" y="26" font-size="6" fill="#363A44">All aircraft:</text>
+        <text x="12" y="37" font-size="6" fill="#363A44">DY += 1</text>
+        <text x="12" y="47" font-size="6" fill="#363A44">FH += daily_fh</text>
+        <text x="12" y="57" font-size="6" fill="#363A44">FC += daily_fc</text>
+        <text x="50" y="67" font-size="6" fill="#3FAE82" font-weight="600">Checked → reset</text>
+      </g>
+      <line x1="330" y1="50" x2="343" y2="50" stroke="#662E7D" stroke-width="1.5" marker-end="url(#arrowMDP)"/>
+      
+      <!-- State t+1 box -->
+      <g transform="translate(350, 8)">
+        <rect x="0" y="0" width="140" height="85" rx="6" fill="#B9DBC1" stroke="#3FAE82" stroke-width="1.5"/>
+        <text x="70" y="14" text-anchor="middle" font-size="8" fill="#3FAE82" font-weight="700">State sₜ₊₁</text>
+        <line x1="8" y1="20" x2="132" y2="20" stroke="#3FAE82" stroke-width="0.5" opacity="0.5"/>
+        
+        <!-- Aircraft 1 - RESET -->
+        <rect x="6" y="24" width="128" height="28" rx="3" fill="#3FAE82" fill-opacity="0.15" stroke="#3FAE82" stroke-width="1"/>
+        <text x="10" y="36" font-size="7" fill="#3FAE82" font-weight="600">AC1: A(0, 0, 0) ✓</text>
+        <text x="10" y="48" font-size="7" fill="#363A44">     C(451, 5211, 2805)</text>
+        
+        <!-- Aircraft 2 - incremented -->
+        <text x="10" y="64" font-size="7" fill="#363A44" font-weight="600">AC2: A(46, 321, 155)</text>
+        <text x="10" y="76" font-size="7" fill="#363A44">     C(201, 2111, 1105)</text>
+      </g>
+      
+      <!-- Cost annotation -->
+      <g transform="translate(165, 90)">
+        <text x="0" y="10" font-size="7" fill="#662E7D" font-weight="600">Cost incurred:</text>
+        <text x="60" y="10" font-size="7" fill="#363A44">I^FH - FH = 750 - 680 = 70 wasted FH</text>
+      </g>
+    </svg>
+  </div>
+  
+  <!-- Cost function - more compact -->
+  <div class="math-block" style="margin:8px 0 0 0; padding:10px;">
+    <div class="math-label">Stage Cost (Eq. 28)</div>
+    <div style="font-size:1.05em;">$$c_t(s_t, a_t) = \underbrace{\sum_{i \in a_t} (I^{FH} - FH_i)}_{\text{wasted FH}} + \underbrace{P_\theta \cdot \theta_t}_{\substack{\text{tolerance}\\\text{penalty}}} + \underbrace{P_\eta \cdot \eta_t}_{\substack{\text{grounding}\\\text{penalty}}}$$</div>
+  </div>
+  
+  <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:6px; margin-top:8px;">
+    <div style="background:#B9DBC1; padding:8px 10px; border-radius:5px; font-size:0.8em;">
+      <strong style="color:#3FAE82;">Wasted FH:</strong> Primary cost. Use aircraft closer to limit.
+    </div>
+    <div style="background:#F3B692; padding:8px 10px; border-radius:5px; font-size:0.8em;">
+      <strong style="color:#F05629;">Tolerance (θₜ):</strong> Any aircraft over limit? $P_θ = 10^8$
+    </div>
+    <div style="background:#EC9191; padding:8px 10px; border-radius:5px; font-size:0.8em;">
+      <strong style="color:#D41647;">Grounding (ηₜ):</strong> Any aircraft stuck? $P_η = 10^8$
+    </div>
+  </div>
+  
+  <div class="highlight-box cyan" style="margin:8px 0 0 0; padding:8px 10px;">
+    <strong>Objective:</strong> $\displaystyle\min_\pi \sum_{t=1}^{T} c_t(s_t, \pi(s_t))$. Minimize total wasted FH while avoiding tolerance/grounding.
+  </div>
+</div>
+
+<!-- ROW 2: The Challenge + Algorithm Overview -->
+<!-- ROW 2: Algorithm - FULL WIDTH -->
+<div class="card span-4 accent-green">
+  <div class="section-kicker">3 - Algorithm</div>
+  <h2>Thrifty DP = Beam Search</h2>
+  
+  <p style="margin-bottom:10px;">With N=45 aircraft and T=1461 days, backward DP is intractable. We use <strong>forward beam search</strong>: at each day t, apply one of 7 actions to each state, prune infeasible successors via workability check, then aggregate by utilization histogram keeping only the best state per bucket.</p>
+  
+  <div class="diagram-container" style="padding:12px;">
+    <div class="diagram-title">Per-Day State Expansion and Pruning</div>
+    <svg viewBox="0 0 900 170" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowPurple" markerWidth="6" markerHeight="5" refX="6" refY="2.5" orient="auto">
+          <polygon points="0 0, 6 2.5, 0 5" fill="#662E7D"/>
+        </marker>
+        <marker id="arrowSilver" markerWidth="5" markerHeight="4" refX="5" refY="2" orient="auto">
+          <polygon points="0 0, 5 2, 0 4" fill="#A0AAB7"/>
+        </marker>
+        <marker id="arrowGreen" markerWidth="5" markerHeight="4" refX="5" refY="2" orient="auto">
+          <polygon points="0 0, 5 2, 0 4" fill="#3FAE82"/>
+        </marker>
+        <linearGradient id="fadeGray" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" style="stop-color:#A0AAB7;stop-opacity:0.6"/>
+          <stop offset="100%" style="stop-color:#A0AAB7;stop-opacity:0.15"/>
+        </linearGradient>
+      </defs>
+      
+      <!-- ==================== SECTION 1: ACTION SELECTION ==================== -->
+      <g transform="translate(0, 0)">
+        <!-- Section background -->
+        <rect x="5" y="8" width="200" height="130" rx="8" fill="#F9B40D" fill-opacity="0.06" stroke="#F9B40D" stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.4"/>
+        <text x="105" y="22" text-anchor="middle" font-size="8" fill="#F9B40D" font-weight="700">1. SELECT ACTION</text>
+        
+        <!-- Input beam -->
+        <g transform="translate(15, 40)">
+          <rect x="0" y="0" width="40" height="70" rx="5" fill="#CEB3D3" fill-opacity="0.3" stroke="#662E7D" stroke-width="1.5" stroke-dasharray="4,2"/>
+          <circle cx="20" cy="18" r="6" fill="#662E7D"/>
+          <circle cx="20" cy="38" r="6" fill="#662E7D"/>
+          <circle cx="20" cy="58" r="6" fill="#662E7D"/>
+        </g>
+        <text x="35" y="125" text-anchor="middle" font-size="8" fill="#662E7D" font-weight="600">Bₜ</text>
+        
+        <!-- Action choice box -->
+        <g transform="translate(70, 38)">
+          <rect x="0" y="0" width="125" height="75" rx="6" fill="#F4F5F1" stroke="#F9B40D" stroke-width="1.5"/>
+          <text x="62" y="15" text-anchor="middle" font-size="7" fill="#F9B40D" font-weight="600">7 actions (nₐ,nᶜ)</text>
+          <text x="10" y="30" font-size="6" fill="#363A44">(0,0) (1,0) (0,1) (1,1)</text>
+          <text x="10" y="42" font-size="6" fill="#363A44">(0,2) (1,2) (2,0)</text>
+          <line x1="5" y1="50" x2="120" y2="50" stroke="#DEDEDE" stroke-width="1"/>
+          <text x="62" y="62" text-anchor="middle" font-size="6" fill="#662E7D" font-weight="600">Which aircraft?</text>
+          <text x="62" y="72" text-anchor="middle" font-size="6" fill="#A0AAB7">Sort by Rᵢᵏ (earliest deadline)</text>
+        </g>
+        
+        <!-- Arrows from beam to actions -->
+        <line x1="58" y1="65" x2="68" y2="65" stroke="#662E7D" stroke-width="1.5" marker-end="url(#arrowPurple)"/>
+        <line x1="58" y1="78" x2="68" y2="78" stroke="#662E7D" stroke-width="1.5" marker-end="url(#arrowPurple)"/>
+        <line x1="58" y1="91" x2="68" y2="91" stroke="#662E7D" stroke-width="1.5" marker-end="url(#arrowPurple)"/>
+      </g>
+      
+      <!-- ==================== SECTION 2: EXPANSION ==================== -->
+      <g transform="translate(210, 0)">
+        <rect x="0" y="8" width="200" height="130" rx="8" fill="#662E7D" fill-opacity="0.05" stroke="#662E7D" stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.3"/>
+        <text x="100" y="22" text-anchor="middle" font-size="8" fill="#662E7D" font-weight="700">2. EXPAND STATES</text>
+        
+        <!-- Tree expansion visualization -->
+        <!-- Parent nodes (left) -->
+        <circle cx="30" cy="55" r="5" fill="#662E7D"/>
+        <circle cx="30" cy="80" r="5" fill="#662E7D"/>
+        <circle cx="30" cy="105" r="5" fill="#662E7D"/>
+        
+        <!-- Expansion lines from top parent (centered) -->
+        <line x1="35" y1="55" x2="80" y2="40" stroke="#662E7D" stroke-width="1.2"/>
+        <line x1="35" y1="55" x2="80" y2="55" stroke="#662E7D" stroke-width="1.2"/>
+        <line x1="35" y1="55" x2="80" y2="70" stroke="#662E7D" stroke-width="1.2"/>
+        
+        <!-- Expansion lines from middle parent (centered) -->
+        <line x1="35" y1="80" x2="80" y2="70" stroke="#662E7D" stroke-width="1.2"/>
+        <line x1="35" y1="80" x2="80" y2="85" stroke="#662E7D" stroke-width="1.2"/>
+        <line x1="35" y1="80" x2="80" y2="100" stroke="#662E7D" stroke-width="1.2"/>
+        
+        <!-- Expansion lines from bottom parent -->
+        <line x1="35" y1="105" x2="80" y2="100" stroke="#662E7D" stroke-width="1.2"/>
+        <line x1="35" y1="105" x2="80" y2="115" stroke="#662E7D" stroke-width="1.2"/>
+        
+        <!-- First expansion children -->
+        <circle cx="85" cy="40" r="4" fill="#F9B40D"/>
+        <circle cx="85" cy="55" r="4" fill="#F9B40D"/>
+        <circle cx="85" cy="70" r="4" fill="#F9B40D"/>
+        <circle cx="85" cy="85" r="4" fill="#F9B40D"/>
+        <circle cx="85" cy="100" r="4" fill="#F9B40D"/>
+        <circle cx="85" cy="115" r="4" fill="#F9B40D"/>
+        
+        <!-- Second level expansion (symmetric fan-out) -->
+        <line x1="89" y1="40" x2="130" y2="36" stroke="#662E7D" stroke-width="1"/>
+        <line x1="89" y1="40" x2="130" y2="44" stroke="#662E7D" stroke-width="1"/>
+        <line x1="89" y1="55" x2="130" y2="55" stroke="#662E7D" stroke-width="1"/>
+        <line x1="89" y1="70" x2="130" y2="66" stroke="#662E7D" stroke-width="1"/>
+        <line x1="89" y1="70" x2="130" y2="74" stroke="#662E7D" stroke-width="1"/>
+        <line x1="89" y1="85" x2="130" y2="85" stroke="#662E7D" stroke-width="1"/>
+        <line x1="89" y1="100" x2="130" y2="96" stroke="#662E7D" stroke-width="1"/>
+        <line x1="89" y1="100" x2="130" y2="104" stroke="#662E7D" stroke-width="1"/>
+        <line x1="89" y1="115" x2="130" y2="115" stroke="#662E7D" stroke-width="1"/>
+        
+        <!-- Second expansion children -->
+        <circle cx="135" cy="36" r="4" fill="#F9B40D"/>
+        <circle cx="135" cy="44" r="4" fill="#F9B40D"/>
+        <circle cx="135" cy="58" r="4" fill="#F9B40D"/>
+        <circle cx="135" cy="66" r="4" fill="#F9B40D"/>
+        <circle cx="135" cy="74" r="4" fill="#F9B40D"/>
+        <circle cx="135" cy="88" r="4" fill="#F9B40D"/>
+        <circle cx="135" cy="96" r="4" fill="#F9B40D"/>
+        <circle cx="135" cy="104" r="4" fill="#F9B40D"/>
+        <circle cx="135" cy="115" r="4" fill="#F9B40D"/>
+        
+        <!-- Expansion annotation -->
+        <text x="160" y="55" font-size="7" fill="#662E7D">|Bₜ| × 7</text>
+        <text x="160" y="67" font-size="7" fill="#662E7D">successors</text>
+        
+        <!-- Arrow to filter -->
+        <line x1="145" y1="80" x2="195" y2="80" stroke="#662E7D" stroke-width="1.5" marker-end="url(#arrowPurple)"/>
+      </g>
+      
+      <!-- ==================== SECTION 3: WORKABILITY FILTER ==================== -->
+      <g transform="translate(415, 0)">
+        <rect x="0" y="8" width="220" height="130" rx="8" fill="#59B9D2" fill-opacity="0.06" stroke="#59B9D2" stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.4"/>
+        <text x="110" y="22" text-anchor="middle" font-size="8" fill="#59B9D2" font-weight="700">3. WORKABILITY CHECK</text>
+        
+        <!-- Input candidates -->
+        <g transform="translate(15, 35)">
+          <circle cx="8" cy="8" r="4" fill="#F9B40D"/>
+          <circle cx="8" cy="20" r="4" fill="#F9B40D"/>
+          <circle cx="8" cy="32" r="4" fill="#F9B40D"/>
+          <circle cx="8" cy="44" r="4" fill="#F9B40D"/>
+          <circle cx="8" cy="56" r="4" fill="#F9B40D"/>
+          <circle cx="8" cy="68" r="4" fill="#F9B40D"/>
+          <circle cx="8" cy="80" r="4" fill="#F9B40D"/>
+        </g>
+        
+        <!-- Greedy simulation box -->
+        <g transform="translate(45, 32)">
+          <rect x="0" y="0" width="110" height="90" rx="6" fill="#ECF6F6" stroke="#59B9D2" stroke-width="1.5"/>
+          <text x="55" y="14" text-anchor="middle" font-size="7" fill="#59B9D2" font-weight="600">Greedy Simulation</text>
+          <line x1="5" y1="20" x2="105" y2="20" stroke="#59B9D2" stroke-width="0.5" opacity="0.5"/>
+          <text x="8" y="33" font-size="6" fill="#363A44">For each candidate:</text>
+          <text x="8" y="45" font-size="6" fill="#363A44">• Simulate t → T</text>
+          <text x="8" y="57" font-size="6" fill="#363A44">• Greedy policy:</text>
+          <text x="12" y="68" font-size="6" fill="#59B9D2" font-style="italic">"earliest deadline first"</text>
+          <text x="8" y="82" font-size="6" fill="#363A44">• Any grounding? → prune</text>
+        </g>
+        
+        <!-- Output: some pass, some fail -->
+        <g transform="translate(170, 35)">
+          <!-- Passed (checkmarks) -->
+          <circle cx="8" cy="8" r="4" fill="#3FAE82"/>
+          <circle cx="8" cy="22" r="4" fill="#3FAE82"/>
+          <circle cx="8" cy="36" r="4" fill="#3FAE82"/>
+          <circle cx="8" cy="50" r="4" fill="#3FAE82"/>
+          <!-- Failed (X marks) -->
+          <circle cx="8" cy="64" r="3.5" fill="#DEDEDE" stroke="#D41647" stroke-width="1" stroke-dasharray="2,2" opacity="0.5"/>
+          <circle cx="8" cy="76" r="3.5" fill="#DEDEDE" stroke="#D41647" stroke-width="1" stroke-dasharray="2,2" opacity="0.5"/>
+          <circle cx="8" cy="88" r="3.5" fill="#DEDEDE" stroke="#D41647" stroke-width="1" stroke-dasharray="2,2" opacity="0.5"/>
+          
+          <!-- Labels -->
+          <text x="18" y="30" font-size="6" fill="#3FAE82">✓ workable</text>
+          <text x="18" y="76" font-size="6" fill="#D41647">✗ pruned</text>
+        </g>
+        
+        <!-- Arrows -->
+        <line x1="30" y1="78" x2="43" y2="78" stroke="#F9B40D" stroke-width="1" marker-end="url(#arrowPurple)"/>
+        <line x1="157" y1="78" x2="167" y2="78" stroke="#59B9D2" stroke-width="1" marker-end="url(#arrowGreen)"/>
+      </g>
+      
+      <!-- ==================== SECTION 4: HISTOGRAM BUCKETING ==================== -->
+      <g transform="translate(640, 0)">
+        <rect x="0" y="8" width="200" height="130" rx="8" fill="#3FAE82" fill-opacity="0.06" stroke="#3FAE82" stroke-width="1" stroke-dasharray="4,3" stroke-opacity="0.4"/>
+        <text x="100" y="22" text-anchor="middle" font-size="8" fill="#3FAE82" font-weight="700">4. HISTOGRAM BUCKETING</text>
+        
+        <!-- Candidates entering -->
+        <g transform="translate(12, 38)">
+          <circle cx="6" cy="10" r="4" fill="#3FAE82"/>
+          <text x="14" y="13" font-size="5" fill="#363A44">ū=.52</text>
+          <circle cx="6" cy="26" r="4" fill="#3FAE82"/>
+          <text x="14" y="29" font-size="5" fill="#363A44">ū=.73</text>
+          <circle cx="6" cy="42" r="4" fill="#3FAE82"/>
+          <text x="14" y="45" font-size="5" fill="#363A44">ū=.77</text>
+          <circle cx="6" cy="58" r="4" fill="#3FAE82"/>
+          <text x="14" y="61" font-size="5" fill="#363A44">ū=.74</text>
+        </g>
+        
+        <!-- Bucket visualization -->
+        <g transform="translate(60, 35)">
+          <!-- Bucket grid -->
+          <rect x="0" y="0" width="85" height="70" rx="4" fill="#F4F5F1" stroke="#3FAE82" stroke-width="1"/>
+          <text x="42" y="12" text-anchor="middle" font-size="6" fill="#3FAE82" font-weight="600">Buckets (Δu=0.1)</text>
+          
+          <!-- Bucket [0.5, 0.6) -->
+          <rect x="5" y="18" width="75" height="16" rx="2" fill="#B9DBC1" fill-opacity="0.4" stroke="#3FAE82" stroke-width="0.5"/>
+          <text x="10" y="28" font-size="5" fill="#363A44">[.5,.6): 1 state</text>
+          <text x="65" y="28" font-size="5" fill="#3FAE82">✓</text>
+          
+          <!-- Bucket [0.7, 0.8) with competition -->
+          <rect x="5" y="38" width="75" height="26" rx="2" fill="#F4DA92" fill-opacity="0.3" stroke="#F9B40D" stroke-width="0.5"/>
+          <text x="10" y="48" font-size="5" fill="#363A44">[.7,.8): 3 states</text>
+          <text x="10" y="58" font-size="5" fill="#A0AAB7">keep argmin J(s)</text>
+          <text x="65" y="53" font-size="5" fill="#3FAE82">✓</text>
+        </g>
+        
+        <!-- Output beam -->
+        <g transform="translate(155, 45)">
+          <rect x="0" y="0" width="35" height="50" rx="5" fill="#B9DBC1" fill-opacity="0.3" stroke="#3FAE82" stroke-width="1.5" stroke-dasharray="4,2"/>
+          <circle cx="17" cy="15" r="5" fill="#3FAE82"/>
+          <circle cx="17" cy="35" r="5" fill="#3FAE82"/>
+        </g>
+        <text x="172" y="110" text-anchor="middle" font-size="8" fill="#3FAE82" font-weight="600">Bₜ₊₁</text>
+        
+        <!-- Arrow to output -->
+        <line x1="147" y1="70" x2="153" y2="70" stroke="#3FAE82" stroke-width="1.5" marker-end="url(#arrowGreen)"/>
+        
+        <!-- Max states annotation -->
+        <text x="100" y="125" text-anchor="middle" font-size="6" fill="#3FAE82">11×11 = max 121 states</text>
+      </g>
+      
+      <!-- ==================== LOOP ARROW ==================== -->
+      <path d="M 845 105 L 870 105 L 870 158 L 30 158 L 30 132" stroke="#A0AAB7" stroke-width="1.5" fill="none" stroke-dasharray="4,3" marker-end="url(#arrowSilver)"/>
+      <text x="450" y="167" text-anchor="middle" font-size="8" fill="#A0AAB7" font-style="italic">repeat for t = 1, 2, ..., T (1461 days)</text>
+      
+      <!-- ==================== LEGEND ==================== -->
+      <g transform="translate(5, 145)">
+        <circle cx="5" cy="5" r="4" fill="#662E7D"/>
+        <text x="12" y="8" font-size="6" fill="#363A44">input</text>
+        <circle cx="50" cy="5" r="4" fill="#F9B40D"/>
+        <text x="57" y="8" font-size="6" fill="#363A44">expanded</text>
+        <circle cx="110" cy="5" r="4" fill="#3FAE82"/>
+        <text x="117" y="8" font-size="6" fill="#363A44">workable</text>
+        <circle cx="170" cy="5" r="3.5" fill="#DEDEDE" stroke="#D41647" stroke-width="1" stroke-dasharray="2,2" opacity="0.6"/>
+        <text x="177" y="8" font-size="6" fill="#363A44">pruned</text>
+      </g>
+    </svg>
+  </div>
+  
+  <!-- Two detail boxes below the diagram -->
+  <div class="two-col" style="margin-top:12px; gap:12px;">
+    <div class="highlight-box cyan" style="margin:0; padding:10px;">
+      <strong style="color:#59B9D2;">Workability (Thrifty Check):</strong> A state is "workable" if a greedy simulation (always check most urgent aircraft first) can reach horizon T without any aircraft being grounded (η=0). If greedy fails, no policy can succeed → prune early.
+    </div>
+    <div class="highlight-box green" style="margin:0; padding:10px;">
+      <strong style="color:#3FAE82;">State Aggregation:</strong> Compute mean utilization ū = (1/N)Σ(FHᵢ/Iᶠᴴ) for both A-checks and C-checks. Discretize with Δu=0.1 → 11 buckets each. Keep only lowest-cost state per bucket → max 11×11 = <strong>121 states/day</strong>.
+    </div>
+  </div>
+  
+  <div class="highlight-box" style="margin:10px 0 0 0; padding:8px 12px;">
+    <strong>Complexity:</strong> O(nₐ · T² / Δu²), quadratic in horizon, not exponential. With B≤121 states and 7 actions, we evaluate ~850 successors per day × 1461 days ≈ 1.2M states total.
+  </div>
+</div>
+
+<!-- ROW 3: Case Study + Extensions -->
+<div class="card span-2 accent-purple">
+  <div class="section-kicker">4 - Input Data</div>
+  <h2>Planning Problem Setup</h2>
+  
+  <p style="margin-bottom:8px;">The input combines a <strong>fleet snapshot</strong> (Sept 25, 2017) with <strong>4 years of operational constraints</strong>. We plan forward while respecting periods when aircraft are needed for peak travel demand.</p>
+  
+  <div class="diagram-container" style="padding:12px; margin-bottom:8px;">
+    <div class="diagram-title">Input → Output</div>
+    <svg viewBox="0 0 500 80" xmlns="http://www.w3.org/2000/svg">
+      
+      <!-- Input 1: Fleet snapshot -->
+      <g transform="translate(5, 5)">
+        <rect x="0" y="0" width="145" height="70" rx="6" fill="#662E7D" fill-opacity="0.08" stroke="#662E7D" stroke-width="1.5"/>
+        <text x="72" y="14" text-anchor="middle" font-size="7" fill="#662E7D" font-weight="700">FLEET STATE (t=0)</text>
+        <text x="8" y="28" font-size="6" fill="#363A44">45 aircraft, each with:</text>
+        <text x="8" y="40" font-size="6" fill="#363A44">• FH since last C-check</text>
+        <text x="8" y="52" font-size="6" fill="#363A44">• FH since last A-check</text>
+        <text x="8" y="64" font-size="6" fill="#363A44">• Monthly usage rates</text>
+      </g>
+      
+      <!-- Plus sign -->
+      <text x="162" y="45" text-anchor="middle" font-size="14" fill="#A0AAB7" font-weight="300">+</text>
+      
+      <!-- Input 2: Constraints -->
+      <g transform="translate(175, 5)">
+        <rect x="0" y="0" width="140" height="70" rx="6" fill="#D41647" fill-opacity="0.08" stroke="#D41647" stroke-width="1.5"/>
+        <text x="70" y="14" text-anchor="middle" font-size="7" fill="#D41647" font-weight="700">CONSTRAINTS</text>
+        <text x="8" y="28" font-size="6" fill="#363A44">• Horizon: T = 1461 days</text>
+        <text x="8" y="40" font-size="6" fill="#363A44">• Peak seasons (no C-checks)</text>
+        <text x="8" y="52" font-size="6" fill="#363A44">• Holidays, capacity limits</text>
+        <text x="8" y="64" font-size="6" fill="#363A44">• 3 C-slots + 1 A-slot / day</text>
+      </g>
+      
+      <!-- Arrow -->
+      <g transform="translate(325, 32)">
+        <line x1="0" y1="8" x2="30" y2="8" stroke="#363A44" stroke-width="2"/>
+        <polygon points="30,8 24,3 24,13" fill="#363A44"/>
+      </g>
+      
+      <!-- Output box -->
+      <g transform="translate(365, 5)">
+        <rect x="0" y="0" width="125" height="70" rx="6" fill="#3FAE82" fill-opacity="0.12" stroke="#3FAE82" stroke-width="1.5"/>
+        <text x="62" y="14" text-anchor="middle" font-size="7" fill="#3FAE82" font-weight="700">SCHEDULE</text>
+        <text x="8" y="28" font-size="6" fill="#363A44">Day 12: AC-7 (C)</text>
+        <text x="8" y="40" font-size="6" fill="#363A44">Day 15: AC-3 (A)</text>
+        <text x="8" y="52" font-size="6" fill="#363A44">Day 23: AC-12 (C)</text>
+        <text x="8" y="64" font-size="6" fill="#3FAE82" font-weight="600">≈200 C + 800 A checks</text>
+      </g>
+      
+    </svg>
+  </div>
+  
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px;">
+    <div class="highlight-box" style="margin:0; padding:8px; font-size:0.85em;">
+      <strong>Fleet:</strong> 21 A320 + 14 A319 + 10 A321<br>
+      <strong>Limits:</strong> C: 7500 FH (±500), A: 750 FH (±75)
+    </div>
+    <div class="highlight-box yellow" style="margin:0; padding:8px; font-size:0.85em;">
+      <strong>Peak seasons:</strong> Jun–Sep (high travel demand)<br>
+      <strong>Goal:</strong> minimize wasted FH, zero groundings
+    </div>
+  </div>
+</div>
+
+<div class="card span-2 accent-orange">
+  <div class="section-kicker">5 - Extensions</div>
+  <h2>"Forward DP" as Beam Search</h2>
+  
+  <p style="margin-bottom:10px; font-size:0.95em;">The paper calls this "practical dynamic programming," but recognizing it as <strong>beam search</strong> unlocks decades of AI/OR improvements:</p>
+  
+  <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px;">
+    <div class="highlight-box" style="margin:0; padding:10px; font-size:0.85em;">
+      <strong style="color:#662E7D;">Beam search literature offers:</strong><br>
+      • Best-first vs. breadth-first expansion<br>
+      • Heuristic guidance (f = g + λh)<br>
+      • Variable beam width<br>
+      • Stochastic beam search<br>
+      • Diverse beam search
+    </div>
+    <div>
+      <p style="margin-bottom:6px; font-size:0.85em;"><strong>Our variants tested:</strong></p>
+      <p style="margin-bottom:4px; font-size:0.85em;">① <strong>Baseline:</strong> Paper's FIFO expansion</p>
+      <p style="margin-bottom:4px; font-size:0.85em;">② <strong>+Heuristic:</strong> h = "time to next grounding risk"</p>
+      <p style="font-size:0.85em;">③ <strong>+Best-first:</strong> Expand lowest f(s) = g + λh first</p>
+    </div>
+  </div>
+  
+  <div class="highlight-box green" style="margin:8px 0 0 0; padding:8px 10px;">
+    Best-first + heuristic → <strong>16% cost reduction</strong> vs. baseline (zero groundings maintained)
+  </div>
+</div>
+
+
+<!-- ROW 4: Results -->
+<div class="card span-4 results-meta accent-orange">
+  <div class="section-kicker">6 - Results</div>
+  <h2>Reproduction &amp; Extension Results</h2>
+  
+  <div class="results-meta-grid">
+    <div class="results-panel variants">
+      <div class="results-panel-title">Variant Comparison</div>
+      <div class="graph-container">
+        <img alt="Variants comparison" src="figures/variants_comparison.svg"/>
+      </div>
+      <div class="panel-caption"><strong>Lower is better.</strong> Bars show Eq. 28 objective (unused FH + penalties, log scale). Best-first beam with future-risk heuristic (λ=100) reduces tolerance events (5→2) and objective (−75%) vs. Deng.</div>
+    </div>
+
+    <div class="results-panel efficiency">
+      <div class="results-panel-title">Efficiency (higher = better)</div>
+      <div class="graph-container">
+        <img alt="FH utilization efficiency" src="figures/efficiency.svg"/>
+      </div>
+      <div class="panel-caption"><strong>A-check:</strong> 95.8% | <strong>C-check:</strong> 93.2%</div>
+    </div>
+    
+    <div class="results-panel capacity">
+      <div class="results-panel-title">Capacity Utilization</div>
+      <div class="graph-container">
+        <img alt="Hangar capacity utilization" src="figures/capacity.svg"/>
+      </div>
+      <div class="panel-caption">Respects slot limits and calendar rules</div>
+    </div>
+
+  </div>
+</div>
+
+</div><!-- end content-grid -->
+
+<!-- Footer removed to fit 2x3 letter layout -->
+
+</div><!-- end poster -->
+
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    renderMathInElement(document.body, {
+      delimiters: [
+        {left: "$$", right: "$$", display: true},
+        {left: "$", right: "$", display: false}
+      ],
+      throwOnError: false
+    });
+  });
+</script>
+</body>
+</html>

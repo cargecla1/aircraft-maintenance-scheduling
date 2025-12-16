@@ -13,6 +13,10 @@ env/
 *.zip
 *.pdf
 
+# But allow poster assets
+!poster/*.pdf
+!poster/figures/*.svg
+
 # Output
 output/
 
